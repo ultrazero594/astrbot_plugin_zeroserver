@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Runtime data (每次运行生成的本地状态，勿提交)
+notified_cache.json
+
+# 本地真实配置（含密钥），勿提交；请复制 config.example.json 为 config.json 后填写
+config.json
+config.local.json
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

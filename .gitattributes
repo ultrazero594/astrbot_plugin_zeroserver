@@ -1,0 +1,11 @@
+* text=auto
+
+# 源码/文本统一用 LF，避免 Windows/CI 换行差异
+*.py     text eol=lf
+*.md     text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.json   text eol=lf
+*.txt    text eol=lf
+*.gitignore text eol=lf
+LICENSE  text eol=lf

@@ -1,5 +1,5 @@
 name: "astrbot_plugin_zeroserver"
 author: "ultrazero594"
-desc: "方舟(ARK: Survival Evolved/ASA) 服务器查询、QQ与游戏账号绑定、每日签到机器人插件（AstrBot）/ ARK server query, QQ↔game account binding and daily check-in bot plugin for AstrBot"
+desc: "AstrBot 插件：方舟(ARK)服务器查询、QQ↔游戏账号绑定与每日签到机器人 | ARK server query, QQ-game binding & daily check-in bot for AstrBot"
 version: "1.0.0"
 repo: "https://github.com/ultrazero594/astrbot_plugin_zeroserver"

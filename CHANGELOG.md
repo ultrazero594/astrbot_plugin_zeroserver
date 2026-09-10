@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.0.3] - 2026-09-10
+
+### 修复 / Fixed
+- 单服查询：A2S / ARK Status 只能给出人数、拿不到名单时，也会用 RCON `listplayers` 补全在线玩家名单（修复“明明有人却显示无”）
+  - Single-server query now falls back to RCON `listplayers` whenever A2S / ARK Status cannot provide the player list (fixes "players online but none shown")
+
 ## [1.0.2] - 2026-09-10
 
 ### 修复 / Fixed
@@ -63,5 +69,6 @@ An AstrBot plugin that queries ARK servers, binds QQ ↔ game accounts and runs 
 - 文档：`README.md`（中文）/ `README.en.md`（English）
 
 [1.0.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.1
+[1.0.3]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.3
 [1.0.2]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.2
 [1.0.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.0

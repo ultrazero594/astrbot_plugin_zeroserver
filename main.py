@@ -428,7 +428,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.0.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.0.3", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1156,13 +1156,14 @@ class ZeroARKPlugin(Star):
                 logger.debug(f"A2S players 查询失败: {e}")
                 pnames = []
                 pcount = self._a2s_player_count(info)
-            # A2S 查不到在线玩家时，用 RCON listplayers 补全
+            # A2S 拿不到玩家名单时，用 RCON listplayers 补全名单与人数
+            # （注意：A2S 有时能报人数但拿不到名单，所以判断依据是“名单为空”）
             query_method = "A2S"
-            if not pcount and not pnames:
+            if not pnames:
                 rcount, rn = await self._get_players_via_rcon(version, map_name)
-                if rcount and rcount > 0:
-                    pcount = rcount
-                    pnames = rn
+                if rn or (rcount and rcount > 0):
+                    pnames = rn or []
+                    pcount = rcount or pcount
                     query_method = "A2S + RCON玩家"
             map_display = get_map_display(info.map_name, version, lang)
             footer = FOOTER_ASE
@@ -1229,12 +1230,12 @@ class ZeroARKPlugin(Star):
             maxp = result.get('max_players', 0)
             pnames = []
             query_method = "ARK Status API"
-            # API 返回 0 人时，用 RCON listplayers 补全玩家名单
-            if not pcount:
+            # API 只给人数、不给名单：只要名单为空就用 RCON listplayers 补全
+            if not pnames:
                 rcount, rn = await self._get_players_via_rcon("ASA", map_name)
-                if rcount and rcount > 0:
-                    pcount = rcount
-                    pnames = rn
+                if rn or (rcount and rcount > 0):
+                    pnames = rn or []
+                    pcount = rcount or pcount
                     query_method = "ARK Status API + RCON玩家"
             footer = FOOTER_ASA
             usage = self.usage_cache.get("ASA", "")

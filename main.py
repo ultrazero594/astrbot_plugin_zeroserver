@@ -428,7 +428,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.0.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.0.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -870,31 +870,48 @@ class ZeroARKPlugin(Star):
                     if ': ' in line:
                         k, v = line.split(': ', 1)
                         info[k.strip()] = v.strip()
+
+                def _info_get(*names, default=""):
+                    """按“忽略大小写/空格/下划线”取值：不同 ARK 版本 getserverinfo 字段名不一致"""
+                    for k, v in info.items():
+                        kk = re.sub(r'[\s_\-]', '', str(k)).lower()
+                        if kk in names:
+                            return v
+                    return default
+
                 raw_players = client.run("listplayers")
                 players = []
                 for line in raw_players.splitlines():
                     line = line.strip()
                     if not line:
                         continue
+                    low = line.lower()
+                    # 空服提示行（如 "No Players Connected"）不是玩家
+                    if 'no players' in low or low.startswith('players:'):
+                        continue
                     if re.match(r'^\d+\.', line):
-                        parts = re.split(r'^\d+\.\s*', line, maxsplit=1)
-                        if len(parts) > 1:
-                            name = re.sub(r'\s*\([^)]+\)$', '', parts[1].strip())
-                            if name:
-                                players.append(name)
+                        name_part = re.split(r'^\d+\.\s*', line, maxsplit=1)[-1].strip()
+                        name = re.sub(r'\s*\([^)]+\)$', '', name_part).strip()
+                        if ',' in name:
+                            name = name.split(',')[0].strip()
+                        if name:
+                            players.append(name)
                     elif ',' in line:
                         name = line.split(',')[0].strip()
                         if name:
                             players.append(name)
-                    else:
-                        players.append(line)
-                maxp = int(info.get("maxplayers", 0))
+                    # 其它无法识别的文本行不再当作玩家，避免幽灵人数
+                maxp_raw = _info_get('maxplayers', 'maxplayer', 'maxplayerslimit', default='0')
+                try:
+                    maxp = int(maxp_raw)
+                except (TypeError, ValueError):
+                    maxp = 0
                 return {
-                    "map_name": info.get("map", "未知"),
+                    "map_name": _info_get('map', 'mapname', default='未知') or '未知',
                     "max_players": maxp,
                     "player_count": len(players),
                     "player_names": players,
-                    "server_name": info.get("serverName", "未知"),
+                    "server_name": _info_get('servername', 'name', 'sessionname', default='未知') or '未知',
                     "source": "RCON"
                 }
         except Exception as e:
@@ -1224,7 +1241,7 @@ class ZeroARKPlugin(Star):
             player_line = "  " + ("、".join(pnames[:20]) if pnames else "无（RCON 未返回名单）")
             lines = [
                 f"🎮 服务器状态", f"📌 地址：{address}", f"🟢 状态：在线",
-                f"🌐 地图：{map_display}", f"👥 在线人数：{pcount} / {maxp}",
+                f"🌐 地图：{map_display}", f"👥 在线人数：{pcount} / {maxp or '?'}",
                 f"🕹️ 服务器名称：{custom_name}", f"📡 查询方式：{query_method}", "📋 服务器类型：非官方",
                 "", "👥 在线玩家：", player_line,
                 "", "🔗 直连方式：", f"【控制台】open {address}（按 Tab 或 ~ 打开控制台）",
@@ -1266,7 +1283,7 @@ class ZeroARKPlugin(Star):
         usage = self.usage_cache.get("ASA", "")
         lines = [
             f"🎮 服务器状态", f"📌 地址：{display_addr}", f"🟢 状态：在线",
-            f"🌐 地图：{map_display}", f"👥 在线人数：{pcount} / {maxp}",
+            f"🌐 地图：{map_display}", f"👥 在线人数：{pcount} / {maxp or '?'}",
             f"🕹️ 服务器名称：{custom_name}", "📡 查询方式：RCON (ARK Status 回退)",
             "", "👥 在线玩家：", "  " + ("、".join(pnames[:20]) if pnames else "无"),
             "", "🔗 直连方式：", f"【控制台】open {display_addr}（按 Tab 或 ~ 打开控制台）",
@@ -1319,7 +1336,7 @@ class ZeroARKPlugin(Star):
                         res = await self._query_via_rcon(rh, int(rp))
                         if res:
                             return (f"  🟢 {display_name}：{res.get('player_count', 0)}/"
-                                    f"{res.get('max_players', 0)} 人在线（RCON） | {addr}")
+                                    f"{res.get('max_players') or '?'} 人在线（RCON） | {addr}")
                     except Exception as e:
                         logger.debug(f"RCON 回退失败 {display_name}: {type(e).__name__}: {e}")
             return f"  🔴 {display_name}：离线 | {addr}"
@@ -1395,7 +1412,9 @@ class ZeroARKPlugin(Star):
                 continue
             fb = fallback.get(e["name"])
             if fb:
-                lines.append(f"  🟢 {e['display']}：{fb[0]}/{fb[1]} 人在线（RCON） | {addr}")
+                # 飞升 RCON getserverinfo 常不返回人数上限：优先用 ARK Status 已匹配到的 max_players
+                mp = (m.get('max_players') if m else 0) or fb[1] or '?'
+                lines.append(f"  🟢 {e['display']}：{fb[0]}/{mp} 人在线（RCON） | {addr}")
                 continue
             if m:
                 lines.append(f"  🟢 {e['display']}：0/{m.get('max_players', 0)} 人在线 | {m.get('ip')}:{m.get('port')}")

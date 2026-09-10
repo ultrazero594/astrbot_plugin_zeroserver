@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.0.2] - 2026-09-10
+
+### 修复 / Fixed
+- 修复 RCON 解析的“幽灵人数”：空服时 `listplayers` 返回的 `No Players Connected` 不再被计为 1 名玩家
+  - Fixed the phantom player: the `No Players Connected` placeholder from `listplayers` is no longer counted as a player
+- `getserverinfo` 字段名改为忽略大小写/空格/下划线匹配（`Max Players`/`maxplayers`/`Max_Players` 均可），修掉飞升人数显示 `1/0`
+  - `getserverinfo` keys are now matched ignoring case/spaces/underscores (fixes ASA showing `1/0`)
+- 飞升列表 RCON 回退时优先使用 ARK Status 的人数上限，避免显示 `?`；仅当上限确实未知时才显示 `?`
+  - ASA list prefers ARK Status `max_players` in the RCON fallback, so `?` appears only when the cap is genuinely unknown
+
 ## [1.0.1] - 2026-09-10
 
 ### 修复 / Fixed
@@ -53,4 +63,5 @@ An AstrBot plugin that queries ARK servers, binds QQ ↔ game accounts and runs 
 - 文档：`README.md`（中文）/ `README.en.md`（English）
 
 [1.0.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.1
+[1.0.2]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.2
 [1.0.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.0

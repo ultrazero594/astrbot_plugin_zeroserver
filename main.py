@@ -428,7 +428,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.0.3", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.1.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1296,6 +1296,207 @@ class ZeroARKPlugin(Star):
         return "\n".join(lines)
 
     # ======================== 全服列表（/ase、/asa 不带地图名时使用） ========================
+    # ======================== 在线玩家查询 ========================
+    def _query_players_detail_sync(self, host: str, port: int):
+        """RCON 查询在线玩家明细：{map_name, server_name, max_players, players:[{name,id}]}；失败返回 None"""
+        if not self.rcon_password:
+            return None
+        try:
+            with RconClient(host, port, passwd=self.rcon_password, timeout=self.config.get('rcon_timeout', 10.0)) as client:
+                raw = client.run("listplayers")
+                players = []
+                for line in raw.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    low = line.lower()
+                    if 'no players' in low or low.startswith('players:'):
+                        continue
+                    m = re.match(r'^\d+\.\s*(.+)$', line)
+                    body = m.group(1) if m else (line if ',' in line else '')
+                    if not body:
+                        continue
+                    parts = [x.strip() for x in body.split(',')]
+                    name = re.sub(r'\s*\([^)]*\)$', '', parts[0]).strip()
+                    pid = parts[1] if len(parts) > 1 else ''
+                    if name:
+                        players.append({"name": name, "id": pid})
+
+                info_raw = client.run("getserverinfo")
+                info = {}
+                for ln in info_raw.splitlines():
+                    if ': ' in ln:
+                        k, v = ln.split(': ', 1)
+                        info[k.strip()] = v.strip()
+
+                def _iget(*names, default=""):
+                    for k, v in info.items():
+                        kk = re.sub(r'[\s_\-]', '', str(k)).lower()
+                        if kk in names:
+                            return v
+                    return default
+
+                try:
+                    maxp = int(_iget('maxplayers', 'maxplayer', default='0'))
+                except (TypeError, ValueError):
+                    maxp = 0
+                return {
+                    "map_name": _iget('map', 'mapname', default='') or '',
+                    "server_name": _iget('servername', 'name', default='') or '',
+                    "max_players": maxp,
+                    "players": players,
+                }
+        except Exception as e:
+            logger.debug(f"RCON 玩家明细查询失败 {host}:{port}: {type(e).__name__}: {e}")
+            return None
+
+    async def _query_players_detail(self, host: str, port: int):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._query_players_detail_sync, host, port)
+
+    async def _lookup_tribe(self, game: str, pid: str, cache: dict):
+        """按玩家ID在聊天库里查最近一条记录，取部落名/地图/时间（RCON 不提供部落信息）"""
+        if not pid:
+            return None
+        key = (game, pid)
+        if key in cache:
+            return cache[key]
+        cache[key] = None
+        src_id = 'asa_chat' if game == 'ASA' else 'ase_chat'
+        src = next((s for s in (self.config.get('db_sources') or []) if s.get('id') == src_id), None)
+        if not src:
+            return None
+        col = 'EOSid' if game == 'ASA' else 'SteamId'
+        try:
+            conn = await aiomysql.connect(
+                host=src.get('host'), port=int(src.get('port', 3306)),
+                user=src.get('user'), password=src.get('password'),
+                db=src.get('database'), charset='utf8mb4', autocommit=True, connect_timeout=5)
+            cur = await conn.cursor()
+            tbl = src.get('table', 'cross_chat')
+            await cur.execute(
+                f"SELECT Sender, TribeName, Map, timestamp FROM `{tbl}` WHERE `{col}`=%s ORDER BY Id DESC LIMIT 1",
+                (pid,))
+            row = await cur.fetchone()
+            await cur.close()
+            conn.close()
+            if row:
+                cache[key] = {"sender": row[0], "tribe": row[1] or '', "map": row[2] or '', "time": row[3]}
+        except Exception as e:
+            logger.debug(f"部落信息查询失败 {game}/{pid}: {type(e).__name__}: {e}")
+        return cache[key]
+
+    async def _players_cmd(self, event):
+        """在线玩家查询：不指定版本=同时查进化+飞升；指定版本/地图则只查该范围"""
+        if not self._check_whitelist(event):
+            return
+        parts = event.message_str.strip().split()
+        version = self._parse_game(parts[1]) if len(parts) >= 2 else ''
+        if version:
+            map_query = parts[2].strip() if len(parts) >= 3 else ''
+            games = [version]
+        else:
+            map_query = parts[1].strip() if len(parts) >= 2 else ''
+            games = ['ASE', 'ASA']
+
+        jobs = []       # (game, map_key, addr)
+        missing = []    # 指定了地图但该版本没有对应 RCON 地址
+        for g in games:
+            rv = self.rcon_cache.get(g, {}) or {}
+            if map_query:
+                key = _fuzzy_key(rv, map_query)
+                if key and rv.get(key):
+                    jobs.append((g, key, rv[key][0]))
+                else:
+                    missing.append(g)
+            else:
+                for k, v in rv.items():
+                    if v:
+                        jobs.append((g, k, v[0]))
+
+        if not jobs:
+            if map_query:
+                yield event.plain_result(f"❌ 未找到地图「{map_query}」的 RCON 地址（进化/飞升均未命中，可先 /更新地址）")
+            else:
+                yield event.plain_result("❌ 暂无 RCON 地址，请先执行 /更新地址")
+            return
+
+        async def probe(game, k, addr):
+            if ':' not in addr:
+                return game, k, addr, None
+            h, p = addr.split(':')
+            try:
+                res = await asyncio.wait_for(self._query_players_detail(h, int(p)), timeout=8.0)
+            except Exception:
+                res = None
+            return game, k, addr, res
+
+        results = await asyncio.gather(*(probe(g, k, a) for g, k, a in jobs))
+        cache = {}
+        title = self._game_cn(games[0]) if len(games) == 1 else "进化 + 飞升"
+        lines = [f"🎮 在线玩家（{title}）"]
+        total_all = 0
+        for g in games:
+            group = [r for r in results if r[0] == g]
+            if not group:
+                if g in missing:
+                    lines.append("")
+                    lines.append(f"━━ 【{self._game_cn(g)}】 ━━")
+                    lines.append(f"  ❌ 未找到地图「{map_query}」")
+                continue
+            lines.append("")
+            lines.append(f"━━ 【{self._game_cn(g)}】 ━━")
+            gcount = 0
+            offline = []
+            for _, k, addr, res in group:
+                if not res:
+                    offline.append(k)
+                    continue
+                players = res.get("players") or []
+                if not players:
+                    continue
+                gcount += len(players)
+                lines.append(f"【{k}】{addr}（{len(players)} 人）")
+                for i, pl in enumerate(players, 1):
+                    pid = str(pl.get('id') or '')
+                    if g == 'ASA':
+                        pid = pid.lower()
+                    info = await self._lookup_tribe(g, pid, cache) or {}
+                    tribe = info.get('tribe') or ''
+                    lastmap = info.get('map') or ''
+                    bits = [f"部落：{tribe}" if tribe else "部落：未知（近期无聊天记录）"]
+                    if lastmap:
+                        bits.append(f"最近活动：{lastmap}")
+                    lines.append(f"  {i}. {pl.get('name')}  |  " + " | ".join(bits) + (f"  |  ID {pid}" if pid else ""))
+            if gcount == 0:
+                lines.append("  （当前没有在线玩家）")
+            if offline:
+                lines.append(f"⚠️ 未响应/无权限：{'、'.join(offline)}")
+            total_all += gcount
+        lines.append("")
+        lines.append("💡 用法：/在线玩家 [进化|飞升] [地图名]（不给版本=同时查进化+飞升）")
+        yield event.plain_result("\n".join(lines) + self.footer)
+
+    @filter.command("在线玩家")
+    async def players_command_cn(self, event):
+        async for r in self._players_cmd(event):
+            yield r
+
+    @filter.command("在线")
+    async def players_command_cn2(self, event):
+        async for r in self._players_cmd(event):
+            yield r
+
+    @filter.command("players")
+    async def players_command_en(self, event):
+        async for r in self._players_cmd(event):
+            yield r
+
+    @filter.command("谁在线")
+    async def players_command_cn3(self, event):
+        async for r in self._players_cmd(event):
+            yield r
+
     async def _list_ase_servers(self, lang: str = "zh") -> str:
         """列出所有进化（ASE）服务器及在线状态"""
         ase_map = self.map_cache.get("ASE", {})
@@ -1831,10 +2032,62 @@ class ZeroARKPlugin(Star):
             yield r
 
     @filter.command("help")
+    def _help_lines(self, is_owner_private: bool) -> list:
+        """构建帮助文本（分组更清晰；Owner 私聊额外显示管理指令）"""
+        sc = self._signin_cfg()
+        ase_pts = sc.get('ase_points', 50)
+        asa_pts = sc.get('asa_points', 50)
+        lines = [
+            "📖 ZeroARK 指令帮助（进化=ASE，飞升=ASA）",
+            "",
+            "【服务器查询】",
+            "· /进化 或 /ase [地图名] → 进化(ASE)服务器；不带地图名=列出全部",
+            "· /飞升 或 /asa [地图名] → 飞升(ASA)服务器；不带地图名=列出全部",
+            "· /查服 或 /ark <IP:端口 或 地图名> [ASE|ASA] → 通用查询",
+            "· /倍率 或 /rate → 当前动态倍率",
+            "· /直连 或 /direct → 所有地图直连地址",
+            "· /更新地址 或 /update_address → 手动刷新地址缓存",
+            "",
+            "【在线玩家】",
+            "· /在线玩家 或 /players [进化|飞升] [地图名] → 在线玩家+部落名（不给版本=进化+飞升一起查）",
+            "",
+            "【账号绑定】",
+            "· /绑定 进化 <SteamID64> → 绑定进化账号（17位数字，7656119开头）",
+            "· /绑定 飞升 <EOS ID> → 绑定飞升账号（32位hex）",
+            "· /绑定 <进化|飞升> 开绑 → 生成绑定验证码，再回游戏公屏发 zsbind <验证码>",
+            "· /解绑 <进化|飞升> → 解除该游戏绑定",
+            "· /查绑定 或 /mybind → 查看我的绑定",
+            "",
+            "【每日签到】",
+            f"· /签到 或 /signin → 进化 +{ase_pts} / 飞升 +{asa_pts}，两个游戏每天各一次",
+            "",
+            "【游戏内指令（在游戏公屏输入）】",
+            "· qqbind <你的QQ号> → 绑定当前游戏账号（该QQ未绑过此游戏时）",
+            "· zsbind <验证码> → 用 QQ 里“开绑”拿到的验证码完成绑定/换绑",
+            "· 商店指令（/points、/shop、/buy）由游戏内 ArkShop 提供，机器人不处理",
+        ]
+        if is_owner_private:
+            lines += [
+                "",
+                "【管理员（仅 Owner 私聊）】",
+                "· /rcon <ASE|ASA> <命令> → 对该版本全部服务器执行",
+                "· /rcon <ASE|ASA> <地图名> <命令> → 对指定地图那一台执行",
+                "· /rcon <目标名> <命令> → 对指定 RCON 目标执行",
+                "· /加点 或 /addpoints <进化|飞升> <ID> <点数> → 加 ArkShop 点数（单台在线服一次，自动回读余额）",
+                "· /代加点 或 /atpoints <进化|飞升> <点数> @群友… → 群聊中给已绑定的群友加点",
+            ]
+        lines += [
+            "",
+            "【其它】",
+            "· /帮助 或 /help → 显示本帮助",
+            "· 英文指令（/ase /asa /ark /players）显示英文地图名，中文指令显示中文地图名",
+        ]
+        return lines
+
+    @filter.command("help")
     async def help_command(self, event: AstrMessageEvent):
         if not self._check_whitelist(event):
             return
-        # 判定是否 owner 私聊：完整版帮助仅在 Owner 私聊时显示；群聊（含 Owner）一律普通玩家版
         owner_qq = str(self.config.get('owner_qq', ''))
         sender_id = event.get_sender_id()
         if not sender_id:
@@ -1846,46 +2099,8 @@ class ZeroARKPlugin(Star):
                         sender_id = sp[1]
             except Exception:
                 pass
-        is_owner_private = bool(sender_id) and str(sender_id) == owner_qq \
-            and not self._event_group_id(event)
-
-        lines = [
-            "📖 方舟机器人指令列表：",
-            "/ase 或 /进化 [地图名]   查询进化(ASE)服务器（不带地图名=列出全部服务器）",
-            "/asa 或 /飞升 [地图名]   查询飞升(ASA)服务器（不带地图名=列出全部服务器）",
-            "/ark 或 /查服 <地图名> [ASE/ASA]  通用查询",
-            "/rate 或 /倍率               查询动态倍率",
-            "/direct 或 /直连             显示所有地图直连地址",
-            "/update_address 或 /更新地址     手动更新地址缓存",
-            "/help 或 /帮助               显示此帮助",
-            "/bind 或 /绑定 <进化|飞升> <ID>   绑定游戏ID（进化=SteamID64，如7656119...；飞升=EOS 32位hex）",
-            "/unbind 或 /解绑 <进化|飞升>   解绑某游戏",
-            "/mybind 或 /查绑定             查看我的绑定",
-            "/signin 或 /签到             每日签到领点数（进化+50 / 飞升+50，两个游戏每天各一次）",
-            "",
-            "【游戏内指令（在游戏公屏输入）】",
-            "qqbind <你的QQ号>    把当前游戏账号绑定到该QQ（该QQ未绑过此游戏时可用）",
-            "zsbind <验证码>      输入QQ里 /绑定 <进化|飞升> 开绑 拿到的验证码，完成绑定/换绑",
-            "注：商店类聊天指令（/points、/shop、/buy 等）由游戏内 ArkShop 插件提供，机器人不处理",
-        ]
-        if is_owner_private:
-            lines += [
-                "",
-                "【管理员指令（Owner 私聊完整版）】",
-                "/rcon <ASE|ASA> <地图> <命令>    对指定服务器执行 RCON 命令",
-                "  例：/rcon ASE 孤岛 listplayers",
-                "/rcon [目标名] <命令>            对已构建的 RCON 目标执行",
-                "  例：/rcon ASE-孤岛 serverchat 你好",
-                "/addpoints 或 /加点 或 /arkshop <进化|飞升> <ID> <点数>",
-                "  给玩家加 ArkShop 点数（只对一台在线服执行一次，自动回读余额确认到账）",
-                "  例：/加点 飞升 <EOS 32位hex> 5",
-                "/代加点 或 /帮加 或 /atpoints <进化|飞升> <点数> @群友…",
-                "  群聊中帮【已绑定该游戏】的群友加点（未绑定的自动跳过）",
-                "  例：/代加点 飞升 5 @小明",
-                "提示：以上全部玩家指令在私聊中同样可用；管理指令仅在私聊 Owner 时生效。",
-            ]
-        lines.append("🌐 语言说明：英文指令（/ase /asa /ark）显示英文标准地图名，中文指令（/进化 /飞升 /查服）显示中文地图名")
-        yield event.plain_result("\n".join(lines) + self.footer)
+        is_owner_private = bool(sender_id) and str(sender_id) == owner_qq and not self._event_group_id(event)
+        yield event.plain_result("\n".join(self._help_lines(is_owner_private)) + self.footer)
 
     @filter.command("帮助")
     async def help_command_cn(self, event: AstrMessageEvent):

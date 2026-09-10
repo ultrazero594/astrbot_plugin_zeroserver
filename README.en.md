@@ -70,6 +70,7 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 | `/ark` `/查服 <IP:port> or <map> [ASE\|ASA]` | Generic query |
 | `/rate` `/倍率` | Show dynamic rates |
 | `/direct` `/直连` | Show all direct-connect addresses |
+| `/players` `/在线玩家` `/在线` `/谁在线` `[ASE\|ASA] [map]` | Online player details: name, tribe (chat DB), last active map, ID; **no version = both ASE+ASA** |
 | `/update_address` `/更新地址` | Manually refresh address cache |
 | `/bind` `/绑定 <ASE\|ASA> <ID>` | Bind game ID (ASE = SteamID64, 17 digits; ASA = EOS, 32 hex chars) |
 | `/bind` `/绑定 <ASE\|ASA> 开绑` | Issue an in-game verification code (use with `zsbind`) |

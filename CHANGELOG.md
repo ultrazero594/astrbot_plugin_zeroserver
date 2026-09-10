@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.1.0] - 2026-09-10
+
+### 新增 / Added
+- 新增 `/在线玩家`（别名 `/在线`、`/players`、`/谁在线`）：查看在线玩家明细，包含**部落名**（取自聊天库 `TribeName`）、最近活动地图与玩家 ID；**不给版本时同时查询进化+飞升**，也可 `/在线玩家 飞升`、`/在线玩家 进化 孤岛` 单独查看
+  - New `/在线玩家` (aliases `/在线`, `/players`, `/谁在线`): online player details for a version (optionally a map), including **tribe name** (from the chat DB `TribeName`), last active map and player ID
+
+### 优化 / Changed
+- 帮助信息（`/help`、`/帮助`）重排：按功能分组（服务器查询 / 在线玩家 / 账号绑定 / 每日签到 / 游戏内指令 / 管理员 / 其它），统一为“指令 → 说明”格式并列出中英文别名；签到点数从配置动态读取
+  - Reworked the help output: grouped by feature with a consistent “command → description” format, aliases listed, and check-in points read from config
+
 ## [1.0.3] - 2026-09-10
 
 ### 修复 / Fixed
@@ -69,6 +79,7 @@ An AstrBot plugin that queries ARK servers, binds QQ ↔ game accounts and runs 
 - 文档：`README.md`（中文）/ `README.en.md`（English）
 
 [1.0.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.1
+[1.1.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.1.0
 [1.0.3]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.3
 [1.0.2]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.2
 [1.0.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.0

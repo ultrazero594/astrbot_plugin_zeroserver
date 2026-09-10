@@ -2,6 +2,20 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.0.1] - 2026-09-10
+
+### 修复 / Fixed
+- 兼容新版 `python-a2s` 字段改名（`players` → `player_count`）：修复 `/ase`、`/asa` 列表把在线服务器误判为离线的问题
+  - Compatibility with the renamed `python-a2s` field (`players` → `player_count`); fixes `/ase` and `/asa` listing online servers as offline
+- `/ase` 列表：A2S 查询失败时自动**回退 RCON** 判定在线与人数；A2S 超时 3s → 5s
+  - `/ase` list now falls back to RCON when A2S fails; A2S timeout 3s → 5s
+- `/asa` 列表：ARK Status 未命中或人数为 0 时，用 RCON 并发补全真实人数
+  - `/asa` list fills real player counts via RCON when ARK Status misses or reports 0
+- 新增配置 `list_rcon_fallback`（默认 `true`），可关闭列表的 RCON 回退
+  - New `list_rcon_fallback` option (default `true`) to disable the RCON fallback
+- 签到示例点数统一为 50 / 50
+  - Example check-in points unified to 50 / 50
+
 ## [1.0.0] - 2026-09-10
 
 ### 初版发布 / Initial release
@@ -38,4 +52,5 @@ An AstrBot plugin that queries ARK servers, binds QQ ↔ game accounts and runs 
   - Copy `config.example.json` → `config.json` and follow the README; create databases per the “Database setup” section.
 - 文档：`README.md`（中文）/ `README.en.md`（English）
 
+[1.0.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.1
 [1.0.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.0

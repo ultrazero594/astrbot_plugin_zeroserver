@@ -220,6 +220,7 @@ DEFAULT_CONFIG = {
     "arkstatus_api_key": "",                  # 可选：ARK Status API Key
     "chat_forward_enabled": False,            # 跨服聊天转发开关
     "chat_check_interval": 1.0,
+    "list_rcon_fallback": True,               # 列表查询失败时用 RCON 回退判定在线/人数
     "db_sources": [],                         # 游戏聊天库源（见 README 数据库一节）
     "qq_to_game_enabled": True,               # QQ 群消息转发进游戏（RCON serverchat）
     "qq_forward_prefix": "💬 [QQ群]",
@@ -235,7 +236,7 @@ DEFAULT_CONFIG = {
     "bind_db": {"host": "", "port": 3306, "user": "", "password": "", "database": "qq"},
     "signin": {
         "timezone_offset_hours": 8,
-        "ase_points": 5000,
+        "ase_points": 50,
         "asa_points": 50,
         "ase_cmd": "AddPoints {id} {points}",
         "asa_cmd": "AddPoints {id} {points}",
@@ -427,7 +428,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.0.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.0.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1093,6 +1094,36 @@ class ZeroARKPlugin(Star):
             logger.error(f"❌ LLM 调用失败: {e}")
             return None
 
+    @staticmethod
+    def _a2s_player_count(info) -> int:
+        """兼容 python-a2s 字段改名：新版 player_count，旧版 players"""
+        for attr in ('player_count', 'players'):
+            v = getattr(info, attr, None)
+            if v is not None:
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    pass
+        return 0
+
+    @staticmethod
+    def _a2s_max_players(info) -> int:
+        v = getattr(info, 'max_players', None)
+        try:
+            return int(v) if v is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _a2s_player_names(players) -> list:
+        """兼容玩家名字段差异（name / player_name）"""
+        names = []
+        for p in players or []:
+            n = getattr(p, 'name', None) or getattr(p, 'player_name', None)
+            if n:
+                names.append(str(n))
+        return names
+
     async def _query_ase_a2s(self, address: str, map_name: str, version: str = "ASE", lang: str = "zh") -> str:
         try:
             if ":" not in address:
@@ -1102,11 +1133,12 @@ class ZeroARKPlugin(Star):
             info = a2s.info((host, port), timeout=5.0)
             try:
                 players = a2s.players((host, port), timeout=5.0)
-                pnames = [p.name for p in players] if players else []
+                pnames = self._a2s_player_names(players)
                 pcount = len(pnames)
-            except:
+            except Exception as e:
+                logger.debug(f"A2S players 查询失败: {e}")
                 pnames = []
-                pcount = info.players
+                pcount = self._a2s_player_count(info)
             # A2S 查不到在线玩家时，用 RCON listplayers 补全
             query_method = "A2S"
             if not pcount and not pnames:
@@ -1120,7 +1152,7 @@ class ZeroARKPlugin(Star):
             usage = self.usage_cache.get("ASE", "")
             lines = [
                 f"🎮 服务器状态", f"📌 地址：{address}", f"🟢 状态：在线",
-                f"🌐 地图：{map_display}", f"👥 在线人数：{pcount} / {info.max_players}",
+                f"🌐 地图：{map_display}", f"👥 在线人数：{pcount} / {self._a2s_max_players(info)}",
                 f"🕹️ 服务器名称：ZeroARK-{map_name}{version}", f"📡 查询方式：{query_method}", "",
                 "👥 在线玩家：", "  " + ("、".join(pnames[:20]) if pnames else "无"), "",
                 "🔗 直连方式：", f"【控制台】open {address}（按 Tab 或 ~ 打开控制台）",
@@ -1263,10 +1295,34 @@ class ZeroARKPlugin(Star):
                 addr += ":27015"
             host, port_str = addr.split(":")
             try:
-                info = await loop.run_in_executor(None, lambda: a2s.info((host, int(port_str)), timeout=3.0))
-                return f"  🟢 {display_name}：{info.players}/{info.max_players} 人在线 | {addr}"
-            except Exception:
-                return f"  🔴 {display_name}：离线 | {addr}"
+                info = await loop.run_in_executor(None, lambda: a2s.info((host, int(port_str)), timeout=5.0))
+                return (f"  🟢 {display_name}：{self._a2s_player_count(info)}/"
+                        f"{self._a2s_max_players(info)} 人在线 | {addr}")
+            except Exception as e:
+                logger.debug(f"A2S 查询失败 {display_name} ({addr}): {type(e).__name__}: {e}")
+            # A2S 不可用（查询端口不通/超时/字段差异）→ 回退 RCON，避免把在线服误判为离线
+            if self.config.get('list_rcon_fallback', True):
+                rcon_addr = None
+                rv = self.rcon_cache.get("ASE", {}) or {}
+                if rv.get(name):
+                    rcon_addr = rv[name][0]
+                else:
+                    for k in rv:
+                        if name in k or k in name:
+                            rcon_addr = rv[k][0]
+                            break
+                if rcon_addr:
+                    if ":" not in rcon_addr:
+                        rcon_addr += ":7777"
+                    try:
+                        rh, rp = rcon_addr.split(":")
+                        res = await self._query_via_rcon(rh, int(rp))
+                        if res:
+                            return (f"  🟢 {display_name}：{res.get('player_count', 0)}/"
+                                    f"{res.get('max_players', 0)} 人在线（RCON） | {addr}")
+                    except Exception as e:
+                        logger.debug(f"RCON 回退失败 {display_name}: {type(e).__name__}: {e}")
+            return f"  🔴 {display_name}：离线 | {addr}"
 
         results = await asyncio.gather(*[query_one(n, a) for n, a in ase_map.items()])
         lines.extend(results)
@@ -1292,15 +1348,59 @@ class ZeroARKPlugin(Star):
                         ps.add(p)
             return ps
 
+        entries = []
         for name, addrs in asa_map.items():
             is_pure = "纯净" in name
-            display_name = get_map_display(name, "ASA", lang)
-            addr = addrs[0] if addrs else ""
-            match = self._match_zeroark(servers, name, _ports_of(addrs), is_pure) if servers else None
-            if match:
-                lines.append(f"  🟢 {display_name}：{match.get('players', 0)}/{match.get('max_players', 0)} 人在线 | {match.get('ip')}:{match.get('port')}")
+            entries.append({
+                "name": name,
+                "display": get_map_display(name, "ASA", lang),
+                "addr": addrs[0] if addrs else "",
+                "match": self._match_zeroark(servers, name, _ports_of(addrs), is_pure) if servers else None,
+            })
+
+        async def rcon_count(name):
+            """RCON 补全某张图的在线人数（ARK Status 未命中/人数为0 时用），返回 (人数, 上限) 或 None"""
+            rv = self.rcon_cache.get("ASA", {}) or {}
+            rcon_addr = rv[name][0] if rv.get(name) else None
+            if not rcon_addr:
+                for k in rv:
+                    if name in k or k in name:
+                        rcon_addr = rv[k][0]
+                        break
+            if not rcon_addr:
+                return None
+            if ":" not in rcon_addr:
+                rcon_addr += ":7777"
+            try:
+                rh, rp = rcon_addr.split(":")
+                res = await self._query_via_rcon(rh, int(rp))
+                if res:
+                    return res.get('player_count', 0), res.get('max_players', 0)
+            except Exception as e:
+                logger.debug(f"ASA RCON 补全失败 {name}: {type(e).__name__}: {e}")
+            return None
+
+        need = [e for e in entries if (not e["match"]) or not e["match"].get("players")]
+        if need and self.config.get('list_rcon_fallback', True):
+            probed = await asyncio.gather(*(rcon_count(e["name"]) for e in need))
+            fallback = {e["name"]: r for e, r in zip(need, probed)}
+        else:
+            fallback = {}
+
+        for e in entries:
+            m = e["match"]
+            addr = e["addr"] if e["addr"] else "无地址"
+            if m and m.get("players"):
+                lines.append(f"  🟢 {e['display']}：{m.get('players', 0)}/{m.get('max_players', 0)} 人在线 | {m.get('ip')}:{m.get('port')}")
+                continue
+            fb = fallback.get(e["name"])
+            if fb:
+                lines.append(f"  🟢 {e['display']}：{fb[0]}/{fb[1]} 人在线（RCON） | {addr}")
+                continue
+            if m:
+                lines.append(f"  🟢 {e['display']}：0/{m.get('max_players', 0)} 人在线 | {m.get('ip')}:{m.get('port')}")
             else:
-                lines.append(f"  🔴 {display_name}：离线/未知 | {addr if addr else '无地址'}")
+                lines.append(f"  🔴 {e['display']}：离线/未知 | {addr}")
         lines.append("")
         lines.append("💡 单服详情：/asa 或 /飞升 <地图名>")
         lines.append(self.footer)
@@ -1741,7 +1841,7 @@ class ZeroARKPlugin(Star):
             "/bind 或 /绑定 <进化|飞升> <ID>   绑定游戏ID（进化=SteamID64，如7656119...；飞升=EOS 32位hex）",
             "/unbind 或 /解绑 <进化|飞升>   解绑某游戏",
             "/mybind 或 /查绑定             查看我的绑定",
-            "/signin 或 /签到             每日签到领点数（进化+5000 / 飞升+50，两个游戏每天各一次）",
+            "/signin 或 /签到             每日签到领点数（进化+50 / 飞升+50，两个游戏每天各一次）",
             "",
             "【游戏内指令（在游戏公屏输入）】",
             "qqbind <你的QQ号>    把当前游戏账号绑定到该QQ（该QQ未绑过此游戏时可用）",
@@ -2206,7 +2306,7 @@ class ZeroARKPlugin(Star):
         cfg = self._signin_cfg()
         cn = self._game_cn(game)
         key_prefix = 'ase' if game == 'ASE' else 'asa'
-        points = int(cfg.get(f'{key_prefix}_points', 5000 if game == 'ASE' else 50))
+        points = int(cfg.get(f'{key_prefix}_points', 50 if game == 'ASE' else 50))
         cmd_tpl = (cfg.get(f'{key_prefix}_cmd') or '').strip()
         if not cmd_tpl:
             return f"❌ 未配置{cn}加点命令（config.json → signin.{key_prefix}_cmd），本次未加点"
@@ -2417,7 +2517,7 @@ class ZeroARKPlugin(Star):
         else:
             verb = "绑定成功"
         points = int(self._signin_cfg().get('ase_points' if game == 'ASE' else 'asa_points',
-                                             5000 if game == 'ASE' else 50))
+                                             50 if game == 'ASE' else 50))
         await self._notify_bind_result(
             qq,
             f"✅ {self._game_cn(game)}游戏内{verb}：QQ={qq} ↔ 角色「{sender}」（{pmap}），ID {pid}（来源：{source}）\n"
@@ -2449,7 +2549,7 @@ class ZeroARKPlugin(Star):
                                      "或游戏内绑定：\n"
                                      "  方式1：直接在游戏公屏发 qqbind <你的QQ号>（该QQ未绑过此游戏时）\n"
                                      "  方式2：/绑定 <进化|飞升> 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>\n"
-                                     "绑定后可用 /签到 每天领一次点数（进化+5000 / 飞升+50，各游戏每天一次）")
+                                     "绑定后可用 /签到 每天领一次点数（进化+50 / 飞升+50，各游戏每天一次）")
             return
         # 验证码开绑：/绑定 <游戏> 开绑|验证码|code|换绑
         if parts[2].strip().lower() in ('code', '开绑', '验证码', '换绑'):

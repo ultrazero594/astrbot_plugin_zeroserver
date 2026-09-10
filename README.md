@@ -165,7 +165,7 @@ astrbot_plugin_zeroserver/
 | 键 | 类型/示例 | 说明 |
 | --- | --- | --- |
 | `signin.timezone_offset_hours` | `8` | “今天”按哪个时区算（东八区=8） |
-| `signin.ase_points` | `5000` | 进化签到加多少点 |
+| `signin.ase_points` | `50` | 进化签到加多少点 |
 | `signin.asa_points` | `50` | 飞升签到加多少点 |
 | `signin.ase_cmd` | `AddPoints {id} {points}` | 进化加点 RCON 命令模板（`{id}`=SteamID64，`{points}`=点数） |
 | `signin.asa_cmd` | `AddPoints {id} {points}` | 飞升加点 RCON 命令模板（`{id}`=EOS，`{points}`=点数） |
@@ -200,6 +200,7 @@ astrbot_plugin_zeroserver/
 | `official_site` | 官网地址（显示在部分消息底部） |
 | `check_interval_minutes` | 地址/RCON/倍率定时刷新间隔（分钟） |
 | `rcon_timeout` | 单条 RCON 命令超时秒数 |
+| `list_rcon_fallback` | `true` | 列表查询（ASE 的 A2S / ASA 的 ARK Status）失败或人数为 0 时，是否回退 RCON 判定在线与人数；嫌慢可设 `false` |
 | `rcon_targets` | 手动 RCON 目标 `[{name,host,port}]`；也可由 `rcon_html_url` 自动构建 |
 | `arkstatus_api_key` | (可选) ARK Status API Key，用于 ASA 在线查询回退 |
 

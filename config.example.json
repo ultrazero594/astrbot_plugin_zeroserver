@@ -8,6 +8,7 @@
   "arkstatus_api_key": "",
   "chat_forward_enabled": false,
   "chat_check_interval": 1.0,
+  "list_rcon_fallback": true,
   "db_sources": [],
   "qq_to_game_enabled": true,
   "qq_forward_prefix": "💬 [QQ群]",
@@ -29,7 +30,7 @@
   },
   "signin": {
     "timezone_offset_hours": 8,
-    "ase_points": 5000,
+    "ase_points": 50,
     "asa_points": 50,
     "ase_cmd": "AddPoints {id} {points}",
     "asa_cmd": "AddPoints {id} {points}",

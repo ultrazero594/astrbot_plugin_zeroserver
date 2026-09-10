@@ -166,7 +166,7 @@ Example `db_sources`:
 | Key | Example | Description |
 | --- | --- | --- |
 | `signin.timezone_offset_hours` | `8` | Time zone used for “today” (UTC+8 = 8) |
-| `signin.ase_points` | `5000` | Points granted by the ASE check-in |
+| `signin.ase_points` | `50` | Points granted by the ASE check-in |
 | `signin.asa_points` | `50` | Points granted by the ASA check-in |
 | `signin.ase_cmd` | `AddPoints {id} {points}` | RCON add-points command template (ASE: `{id}` = SteamID64) |
 | `signin.asa_cmd` | `AddPoints {id} {points}` | RCON add-points command template (ASA: `{id}` = EOS) |
@@ -202,6 +202,7 @@ Example `db_sources`:
 | `official_site` | Website shown at the bottom of some messages |
 | `check_interval_minutes` | Refresh interval for addresses/RCON/rates (minutes) |
 | `rcon_timeout` | RCON command timeout (seconds) |
+| `list_rcon_fallback` | `true` | Fall back to RCON for online status / player count when list queries (ASE A2S / ASA ARK Status) fail or report 0 players; set `false` if too slow |
 | `rcon_targets` | Manual targets `[{name, host, port}]` (can also be built automatically from `rcon_html_url`) |
 | `arkstatus_api_key` | (optional) ARK Status API key used as an ASA online fallback |
 

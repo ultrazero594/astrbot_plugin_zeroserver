@@ -2469,8 +2469,10 @@ class ZeroARKPlugin(Star):
             rows.append({"buttons": row})
         return {"rows": rows}
 
-    async def _qq_send_keyboard(self, event, group_openid: str, content: str, buttons: list) -> str:
-        """实验功能：绕过 AstrBot 消息链，直接调 botpy 发一条带按钮的 QQ 群消息"""
+    async def _qq_send_keyboard(self, event, group_openid: str, content: str, buttons: list,
+                                variant: int = 1) -> str:
+        """实验功能：绕过 AstrBot 消息链，直接调 botpy 发一条带按钮的 QQ 群消息。
+        variant 1=文本+按钮  2=markdown+按钮  3=文本+按钮(不带 msg_id，走主动消息)"""
         inst = self._find_platform_inst('qq_official')
         if inst is None:
             return "❌ 未找到 QQ 官方机器人适配器"
@@ -2479,22 +2481,30 @@ class ZeroARKPlugin(Star):
             return "❌ 适配器上取不到 botpy api（版本差异）"
         raw = getattr(getattr(event, 'message_obj', None), 'raw_message', None)
         msg_id = str(getattr(raw, 'id', '') or '') or None
-        kwargs = {"group_openid": str(group_openid), "msg_type": 0,
-                  "content": content, "keyboard": self._kb_payload(buttons)}
+        kb = self._kb_payload(buttons)
+        if variant == 2:
+            kwargs = {"group_openid": str(group_openid), "msg_type": 2,
+                      "markdown": {"content": content}, "keyboard": kb}
+        else:
+            kwargs = {"group_openid": str(group_openid), "msg_type": 0, "keyboard": kb}
+            if variant == 1:
+                kwargs["content"] = content
+            else:
+                kwargs["content"] = content
         try:
-            if msg_id:
+            if msg_id and variant != 3:
                 kwargs["msg_id"] = msg_id      # 被动回复，走 msg_id 不消耗主动额度
             ret = await api.post_group_message(**kwargs)
-            logger.info(f"🧪 QQ 按钮发送返回: {str(ret)[:200]}")
-            return f"✅ 已发送带按钮的消息\n返回：{str(ret)[:200]}"
+            logger.info(f"🧪 QQ 按钮(v{variant})返回: {str(ret)[:200]}")
+            return f"✅ 变体 {variant} 发送成功（API 接受，无报错）\n返回：{str(ret)[:200]}"
         except Exception as e:
             detail = f"{type(e).__name__}: {e}"
-            logger.warning(f"🧪 QQ 按钮实验失败: {detail}")
-            return (f"❌ 发送失败：{detail[:260]}\n"
+            logger.warning(f"🧪 QQ 按钮(v{variant})失败: {detail}")
+            return (f"❌ 变体 {variant} 失败：{detail[:260]}\n"
                     f"（多半是没开通「按钮」能力，或该群/该机器人不允许使用）")
 
     async def _test_kb_cmd(self, event):
-        """Owner 实验指令：在当前群发一条带按钮的消息"""
+        """Owner 实验指令：在当前群发一条带按钮的消息（可指定变体 1/2/3/全试）"""
         if not self._check_whitelist(event):
             return
         if not self._is_owner(event):
@@ -2507,10 +2517,16 @@ class ZeroARKPlugin(Star):
         if not group_id:
             yield event.plain_result("❌ 拿不到群标识，请在群里发这个指令")
             return
+        arg = event.message_str.strip().split()
+        want = arg[1].strip() if len(arg) > 1 else "1"
         buttons = [("在线玩家", "/在线玩家"), ("签到", "/签到"),
                    ("查绑定", "/查绑定"), ("帮助", "/帮助查询")]
-        yield event.plain_result(await self._qq_send_keyboard(
-            event, group_id, "👇 试试点按钮直接发指令（实验功能）", buttons))
+        variants = [1, 2, 3] if want.lower() in ("all", "全部", "0") else [int(want) if want.isdigit() else 1]
+        out = []
+        for v in variants:
+            out.append(await self._qq_send_keyboard(
+                event, group_id, f"变体{v}：👇 试试点按钮（实验功能）", buttons, variant=v))
+        yield event.plain_result("\n\n".join(out) + "\n\n发 /测试按钮 2 或 3 可换变体")
 
     @filter.command("测试按钮")
     async def test_kb_cmd_cn(self, event: AstrMessageEvent):

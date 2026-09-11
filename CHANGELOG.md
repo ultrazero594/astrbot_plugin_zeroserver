@@ -2,6 +2,13 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.19.3] - 2026-09-12
+
+### 新增 / Added
+- **游戏公屏上显示中文「跨服」**（用户问"能改成中文跨服?"）：CCA 的 `Map` 标签字段只吃 ASCII，但**发送者字段支持中文** —— 新增配置 `cca_sender_prefix`（默认 `【跨服】`）拼在发送者前面；同时把 ASCII 标签缩回短值 `cca_map_label="QQ"` / `cca_map_label_kook="KOOK"`
+  - 效果：游戏里显示 **`[KOOK]: 【跨服】萌新0号: 内容`** / **`[QQ]: 【跨服】萌新0号: 内容`**
+  - Chinese 「跨服」now shows on the game chat line: CCA's `Map` field is ASCII-only, but the sender field renders CJK fine — new `cca_sender_prefix` (default `【跨服】`) is prepended to the sender, and the ASCII labels shrink back to `QQ` / `KOOK`
+
 ## [1.19.2] - 2026-09-12
 
 ### 修复 / Fixed

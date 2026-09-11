@@ -245,8 +245,9 @@ DEFAULT_CONFIG = {
     # QQ/KOOK → 游戏公屏 的发送通道：rcon（默认，任何环境可用）| cca（写 CrossChatAscended 的表，
     # 借用它的跨服通道与格式；只有装了 CCA 的服会显示）
     "game_send_via": "rcon",
-    "cca_map_label": "CrossServer-QQ",     # 写 CCA 时 Map 字段用的标签（**必须纯 ASCII**，中文会被 CCA 解成乱码）
-    "cca_map_label_kook": "CrossServer-KOOK",
+    "cca_map_label": "QQ",                 # 写 CCA 时 Map 字段用的标签（**必须纯 ASCII**，中文会被 CCA 解成乱码）
+    "cca_map_label_kook": "KOOK",
+    "cca_sender_prefix": "【跨服】",         # 加在发送者前面（Sender 字段支持中文，用来显示"跨服"）
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -487,7 +488,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.3", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1172,12 +1173,12 @@ class ZeroARKPlugin(Star):
     def _cca_label_for(self, platform_name: str) -> str:
         key = 'cca_map_label_kook' if (platform_name or '') == 'kook' else 'cca_map_label'
         return self._cca_label_safe(
-            self.config.get(key) or ('KOOK' if key.endswith('kook') else 'QQ-Group'))
+            self.config.get(key) or ('KOOK' if key.endswith('kook') else 'QQ'))
 
     def _cca_labels(self) -> set:
         """我们自己写进 CCA 表时用的 Map 标签集合（用于在跨服转发时跳过这些行，防回声）
         注意要与真正写库时的取值完全一致，所以同样过一遍 _cca_label_safe()。"""
-        return {self._cca_label_safe(self.config.get('cca_map_label') or 'QQ-Group'),
+        return {self._cca_label_safe(self.config.get('cca_map_label') or 'QQ'),
                 self._cca_label_safe(self.config.get('cca_map_label_kook') or 'KOOK')}
 
     async def _cca_send(self, platform_name: str, sender: str, message: str) -> bool:
@@ -1190,7 +1191,9 @@ class ZeroARKPlugin(Star):
         label = self._game_safe(self._cca_label_for(platform_name))[:50]
         if not label:
             label = 'CrossServer'
-        sender = self._game_safe(sender)[:100]
+        # Map 标签字段只吃 ASCII，所以"跨服"这类中文标记放在**发送者**里（该字段中文正常）
+        sender_prefix = str(self.config.get('cca_sender_prefix') or '')
+        sender = self._game_safe(sender_prefix + str(sender))[:100]
         message = self._game_safe(message)[:250]
         ok_any = False
         for src in srcs:

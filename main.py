@@ -428,7 +428,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.1.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.2.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -706,58 +706,119 @@ class ZeroARKPlugin(Star):
     async def _send_notify(self, message: str):
         await self._send_group_msg(self.config['notify_group'], message)
 
+    # ======================== 平台发送层（OneBot + QQ 官方机器人） ========================
+    def _platform_insts(self):
+        """获取所有平台适配器实例"""
+        try:
+            pm = getattr(self.context, 'platform_manager', None)
+            insts = getattr(pm, 'platform_insts', None) if pm else None
+            return list(insts) if insts else []
+        except Exception:
+            return []
+
+    def _find_platform_inst(self, name: str):
+        """按适配器名查找平台实例（qq_official / aiocqhttp）"""
+        for p in self._platform_insts():
+            try:
+                if getattr(p.meta(), 'name', '') == name:
+                    return p
+            except Exception:
+                continue
+        return None
+
+    def _platform_tag(self) -> str:
+        """当前优先平台标识：qq_official（openid 体系）或 qq（OneBot QQ号体系）"""
+        return 'qq_official' if self._find_platform_inst('qq_official') is not None else 'qq'
+
     def _find_aiocqhttp_client(self):
         """定位 aiocqhttp(OneBot) 适配器的 client；找不到返回 None"""
-        try:
-            platform = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
-            if platform is not None:
-                client = platform.get_client()
-                if client is not None:
-                    return client
-        except Exception as e:
-            logger.debug(f"AIOCQHTTP 适配器查找失败: {e}")
-        # 兜底：从平台管理器里遍历查找
+        p = self._find_platform_inst('aiocqhttp')
+        if p is not None:
+            try:
+                c = p.get_client()
+                if c is not None:
+                    return c
+            except Exception as e:
+                logger.debug(f"AIOCQHTTP client 获取失败: {e}")
         try:
             from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_platform_adapter import AiocqhttpAdapter
-            pm = getattr(self.context, 'platform_manager', None)
-            insts = getattr(pm, 'platform_insts', None) if pm else []
-            for p in insts:
+            for p in self._platform_insts():
                 if isinstance(p, AiocqhttpAdapter):
-                    client = p.get_client()
-                    if client is not None:
-                        return client
+                    c = p.get_client()
+                    if c is not None:
+                        return c
         except Exception as e:
             logger.debug(f"AIOCQHTTP 适配器(平台管理器)查找失败: {e}")
         return None
 
     async def _wait_qq_adapter(self, purpose: str = "发送消息"):
-        """等待 aiocqhttp 适配器连接就绪（用 get_login_info 探测），返回其 client"""
+        """等待任一可用 QQ 平台就绪：优先 QQ 官方机器人，其次 OneBot；返回 (kind, obj)"""
         logger.info(f"⏳ 等待 QQ 适配器连接（{purpose}）...")
         while True:
+            official = self._find_platform_inst('qq_official')
+            if official is not None:
+                logger.info(f"✅ QQ 官方机器人适配器就绪（{purpose}）")
+                return ('qq_official', official)
             client = self._find_aiocqhttp_client()
             if client is not None:
                 try:
                     await client.api.call_action("get_login_info", timeout=5.0)
-                    logger.info(f"✅ QQ 适配器已连接（{purpose}）")
-                    return client
+                    logger.info(f"✅ OneBot 适配器已连接（{purpose}）")
+                    return ('aiocqhttp', client)
                 except Exception as e:
                     logger.debug(f"适配器未就绪: {e}")
             await asyncio.sleep(2)
 
+    async def _official_send(self, platform_inst, message_type: str, session_id: str, message: str) -> bool:
+        """通过 QQ 官方机器人 send_by_session 主动发送（群=group_openid，私聊=user_openid）"""
+        try:
+            from astrbot.api.event import MessageChain
+            from astrbot.core.platform.message_session import MessageSession
+            from astrbot.core.platform.message_type import MessageType
+            mtype = MessageType.GROUP_MESSAGE if message_type == 'group' else MessageType.FRIEND_MESSAGE
+            # 群聊：适配器要求已记录 scene=group 才允许主动发送（收到过该群消息即可满足）
+            if mtype == MessageType.GROUP_MESSAGE:
+                try:
+                    platform_inst.remember_session_scene(str(session_id), 'group')
+                except Exception:
+                    pass
+            platform_id = ''
+            try:
+                platform_id = str(platform_inst.meta().id or '')
+            except Exception:
+                pass
+            session = MessageSession(
+                platform_name=platform_id or 'qq_official',
+                message_type=mtype,
+                session_id=str(session_id),
+            )
+            await platform_inst.send_by_session(session, MessageChain().message(message))
+            logger.info(f"✅ QQ 官方机器人已发送（{message_type}:{str(session_id)[:12]}...）")
+            return True
+        except Exception as e:
+            logger.error(f"❌ QQ 官方机器人发送失败（{message_type}:{str(session_id)[:12]}...）: {type(e).__name__}: {e}")
+            return False
+
     @staticmethod
     def _umo_group_id(umo) -> str:
-        """从 unified_msg_origin 中解析群号；无法解析返回空串"""
+        """从 unified_msg_origin 中解析会话标识（数字群号或 openid）；无法解析返回空串"""
         try:
             sess = str(getattr(umo, 'session_id', '') or umo)
         except Exception:
             return ""
-        m = re.search(r'group_?(\d+)', sess)
-        return m.group(1) if m else ""
+        m = re.search(r'group[_:]?([A-Za-z0-9_-]{5,})', sess)
+        if m:
+            return m.group(1)
+        parts = sess.split(':')
+        return parts[-1] if len(parts) >= 3 else ''
 
     async def _send_group_msg(self, group_id, message: str) -> bool:
-        """通过 aiocqhttp 平台主动发送群消息（仅支持 OneBot）"""
-        client = await self._wait_qq_adapter("群消息发送")
-        # 方式1: 用捕获的 umo 发送（仅当 umo 所在群与目标群一致，避免发错群）
+        """主动发送群消息：优先 QQ 官方机器人，其次 OneBot（含 umo 回复通道）"""
+        kind, obj = await self._wait_qq_adapter("群消息发送")
+        if kind == 'qq_official':
+            return await self._official_send(obj, 'group', str(group_id), message)
+        client = obj
+        # OneBot 方式1: 用捕获的 umo 发送（仅当 umo 所在群与目标群一致，避免发错群）
         try:
             from astrbot.api.event import MessageChain
             umo = getattr(self, '_notify_umo', None) or getattr(self, '_last_umo', None)
@@ -767,7 +828,7 @@ class ZeroARKPlugin(Star):
                 return True
         except Exception as e:
             logger.error(f"❌ umo 发送失败: {e}")
-        # 方式2: 使用 call_action（OneBot 标准方式）
+        # OneBot 方式2: call_action
         try:
             await client.api.call_action("send_group_msg", group_id=group_id, message=message)
             logger.info(f"✅ 消息已发送到群 {group_id} (call_action方式)")
@@ -777,8 +838,11 @@ class ZeroARKPlugin(Star):
         return False
 
     async def _send_private_msg(self, user_id, message: str) -> bool:
-        """通过 aiocqhttp 平台主动发送私聊消息（仅支持 OneBot）"""
-        client = await self._wait_qq_adapter("私聊消息发送")
+        """主动发送私聊消息：优先 QQ 官方机器人（openid），其次 OneBot（QQ号）"""
+        kind, obj = await self._wait_qq_adapter("私聊消息发送")
+        if kind == 'qq_official':
+            return await self._official_send(obj, 'private', str(user_id), message)
+        client = obj
         try:
             await client.api.call_action("send_private_msg", user_id=user_id, message=message)
             logger.info(f"✅ 私聊消息已发送到 {user_id} (call_action方式)")
@@ -1864,8 +1928,9 @@ class ZeroARKPlugin(Star):
         seen = set()
 
         def add(q):
-            s = str(q)
-            if s.isdigit() and len(s) >= 5 and s not in seen:
+            s = str(q).strip()
+            ok = (s.isdigit() and len(s) >= 5) or bool(re.fullmatch(r'[A-Za-z0-9_\-]{6,}', s))
+            if ok and s not in seen:
                 seen.add(s)
                 qqs.append(s)
 
@@ -1967,7 +2032,7 @@ class ZeroARKPlugin(Star):
         if not targets:
             for tok in tokens[3:]:
                 tok_clean = re.sub(r'^@', '', tok.strip())
-                if tok_clean.isdigit() and len(tok_clean) >= 5:
+                if (tok_clean.isdigit() and len(tok_clean) >= 5) or re.fullmatch(r'[A-Za-z0-9_\-]{6,}', tok_clean):
                     targets.append(tok_clean)
             targets = list(dict.fromkeys(targets))
         if not targets:
@@ -2031,9 +2096,81 @@ class ZeroARKPlugin(Star):
         async for r in self._owner_group_atpoints_cmd(event):
             yield r
 
-    @filter.command("help")
+    async def _whoami_cmd(self, event):
+        """显示当前会话的平台标识（openid/QQ号、群标识），用于填写 owner_qq / 白名单 / 通知群。
+        不校验白名单：迁移期必须保证任何群/私聊都能拿到自己的 openid。"""
+        try:
+            sender = event.get_sender_id()
+        except Exception:
+            sender = None
+        try:
+            session_id = event.get_session_id()
+        except Exception:
+            session_id = ''
+        try:
+            platform_name = event.get_platform_name()
+        except Exception:
+            platform_name = ''
+        # 原始 payload 里的 openid（QQ 官方机器人群消息可能同时带 member_openid 与 user_openid）
+        raw_member = raw_user = ''
+        try:
+            raw = getattr(event.message_obj, 'raw_message', None)
+            author = getattr(raw, 'author', None)
+            raw_member = str(getattr(author, 'member_openid', '') or '')
+            raw_user = str(getattr(author, 'user_openid', '') or '')
+        except Exception:
+            pass
+        group = self._event_group_id(event)
+        lines = [
+            "🪪 会话标识（用于 config.json 配置）",
+            f"· 平台：{platform_name or '(未知)'}",
+            f"· 你的ID（openid/QQ号）：{sender}",
+            f"· 会话ID：{session_id}",
+            f"· 群/频道标识：{group or '（私聊）'}",
+            f"· member_openid：{raw_member or '（无）'}",
+            f"· user_openid：{raw_user or '（无）'}",
+            "",
+            "对照填写：你的ID → owner_qq；群标识 → whitelist_groups / notify_group；",
+            "玩家绑定主键即「你的ID」（QQ 官方机器人下为 openid，无法换成真实 QQ 号）。",
+        ]
+        yield event.plain_result("\n".join(lines))
+
+    async def _test_push_cmd(self, event):
+        """Owner 专用：让机器人在通知群主动发一条消息，验证官方机器人的主动发言权限/配额"""
+        if not self._check_whitelist(event):
+            return
+        qq = self._sender_qq(event)
+        if not qq or qq != str(self.config.get('owner_qq', '')):
+            return
+        group_id = self.config.get('notify_group')
+        if not group_id:
+            yield event.plain_result("❌ 未配置 notify_group")
+            return
+        ok = await self._send_group_msg(group_id, "🔔 测试推送：机器人主动消息通道正常（此消息为主动发送）")
+        yield event.plain_result("✅ 已发送测试推送到通知群" if ok else "❌ 测试推送失败，请看日志（可能触发了主动消息配额/权限限制）")
+
+    @filter.command("测试推送")
+    async def test_push_cmd_cn(self, event: AstrMessageEvent):
+        async for r in self._test_push_cmd(event):
+            yield r
+
+    @filter.command("testpush")
+    async def test_push_cmd_en(self, event: AstrMessageEvent):
+        async for r in self._test_push_cmd(event):
+            yield r
+
+    @filter.command("whoami")
+    async def whoami_command(self, event: AstrMessageEvent):
+        async for r in self._whoami_cmd(event):
+            yield r
+
+    @filter.command("我是谁")
+    async def whoami_command_cn(self, event: AstrMessageEvent):
+        async for r in self._whoami_cmd(event):
+            yield r
+
     def _help_lines(self, is_owner_private: bool) -> list:
-        """构建帮助文本（分组更清晰；Owner 私聊额外显示管理指令）"""
+        """构建帮助文本（分组清晰；Owner 私聊额外显示管理指令）"""
         sc = self._signin_cfg()
         ase_pts = sc.get('ase_points', 50)
         asa_pts = sc.get('asa_points', 50)
@@ -2051,19 +2188,17 @@ class ZeroARKPlugin(Star):
             "【在线玩家】",
             "· /在线玩家 或 /players [进化|飞升] [地图名] → 在线玩家+部落名（不给版本=进化+飞升一起查）",
             "",
-            "【账号绑定】",
+            "【账号绑定与签到】",
             "· /绑定 进化 <SteamID64> → 绑定进化账号（17位数字，7656119开头）",
             "· /绑定 飞升 <EOS ID> → 绑定飞升账号（32位hex）",
             "· /绑定 <进化|飞升> 开绑 → 生成绑定验证码，再回游戏公屏发 zsbind <验证码>",
             "· /解绑 <进化|飞升> → 解除该游戏绑定",
             "· /查绑定 或 /mybind → 查看我的绑定",
-            "",
-            "【每日签到】",
-            f"· /签到 或 /signin → 进化 +{ase_pts} / 飞升 +{asa_pts}，两个游戏每天各一次",
+            f"· /签到 或 /signin → 每日签到（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次；群内查不到绑定时请改私聊签到）",
             "",
             "【游戏内指令（在游戏公屏输入）】",
-            "· qqbind <你的QQ号> → 绑定当前游戏账号（该QQ未绑过此游戏时）",
             "· zsbind <验证码> → 用 QQ 里“开绑”拿到的验证码完成绑定/换绑",
+            "· qqbind <QQ号> → 仅 OneBot 渠道可用；QQ 官方机器人下请用上面的验证码流程",
             "· 商店指令（/points、/shop、/buy）由游戏内 ArkShop 提供，机器人不处理",
         ]
         if is_owner_private:
@@ -2075,12 +2210,14 @@ class ZeroARKPlugin(Star):
                 "· /rcon <目标名> <命令> → 对指定 RCON 目标执行",
                 "· /加点 或 /addpoints <进化|飞升> <ID> <点数> → 加 ArkShop 点数（单台在线服一次，自动回读余额）",
                 "· /代加点 或 /atpoints <进化|飞升> <点数> @群友… → 群聊中给已绑定的群友加点",
+                "· /测试推送 或 /testpush → 在通知群主动发一条测试消息（验证主动消息权限/配额）",
             ]
         lines += [
             "",
             "【其它】",
+            "· /我是谁 或 /whoami → 查看你的平台ID（openid/QQ号）与群标识（配置/排查用）",
             "· /帮助 或 /help → 显示本帮助",
-            "· 英文指令（/ase /asa /ark /players）显示英文地图名，中文指令显示中文地图名",
+            "· 群聊里请先 @机器人 再发指令；绑定主键是当前渠道的用户ID（QQ 官方机器人下为 openid）",
         ]
         return lines
 
@@ -2311,13 +2448,14 @@ class ZeroARKPlugin(Star):
             autocommit=False, connect_timeout=5)
 
     async def _ensure_qq_tables(self):
-        """确保绑定/签到表存在（幂等）"""
+        """确保绑定/签到表存在（幂等），并自动迁移旧库：qq BIGINT → VARCHAR(64) 以支持 openid"""
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS qq_bind (
-                    qq BIGINT UNSIGNED NOT NULL,
+                    qq VARCHAR(64) NOT NULL,
+                    platform VARCHAR(16) NOT NULL DEFAULT '',
                     game VARCHAR(8) NOT NULL,
                     player_id VARCHAR(64) NOT NULL,
                     player_name VARCHAR(100) NOT NULL DEFAULT '',
@@ -2329,7 +2467,7 @@ class ZeroARKPlugin(Star):
             """)
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS qq_checkin (
-                    qq BIGINT UNSIGNED NOT NULL,
+                    qq VARCHAR(64) NOT NULL,
                     game VARCHAR(8) NOT NULL,
                     day CHAR(10) NOT NULL,
                     points INT NOT NULL DEFAULT 0,
@@ -2338,6 +2476,23 @@ class ZeroARKPlugin(Star):
                     PRIMARY KEY (qq, game, day)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
+
+            async def _col_type(table, col):
+                await cur.execute(
+                    "SELECT DATA_TYPE FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s AND COLUMN_NAME=%s",
+                    (table, col))
+                r = await cur.fetchone()
+                return r[0] if r else ''
+
+            for tbl in ('qq_bind', 'qq_checkin'):
+                t = str(await _col_type(tbl, 'qq') or '').lower()
+                if t and t not in ('varchar', 'char', 'text'):
+                    await cur.execute(f"ALTER TABLE `{tbl}` MODIFY COLUMN qq VARCHAR(64) NOT NULL")
+                    logger.info(f"🔧 {tbl}.qq 已从 {t} 迁移为 VARCHAR(64)（支持 openid）")
+            if not await _col_type('qq_bind', 'platform'):
+                await cur.execute("ALTER TABLE qq_bind ADD COLUMN platform VARCHAR(16) NOT NULL DEFAULT '' AFTER qq")
+                logger.info("🔧 qq_bind 已补充 platform 列")
             await conn.commit()
             await cur.close()
             logger.info("✅ qq 数据库表结构已就绪 (qq_bind / qq_checkin)")
@@ -2374,6 +2529,7 @@ class ZeroARKPlugin(Star):
         return bool(re.fullmatch(r"[0-9a-fA-F]{32}", pid))
 
     def _sender_qq(self, event: AstrMessageEvent) -> str:
+        """发送者标识：OneBot 下是 QQ 号，QQ 官方机器人下是 user_openid（字符串）"""
         try:
             qq = event.get_sender_id()
         except Exception:
@@ -2389,14 +2545,16 @@ class ZeroARKPlugin(Star):
                 return tok
         return ""
 
-    async def _bind_upsert(self, qq, game, pid, pname="", pmap=""):
+    async def _bind_upsert(self, qq, game, pid, pname="", pmap="", platform=""):
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
             await cur.execute(
-                "INSERT INTO qq_bind (qq, game, player_id, player_name, last_map) VALUES (%s,%s,%s,%s,%s) "
-                "ON DUPLICATE KEY UPDATE player_id=VALUES(player_id), player_name=VALUES(player_name), last_map=VALUES(last_map)",
-                (int(qq), game, pid, pname, pmap))
+                "INSERT INTO qq_bind (qq, platform, game, player_id, player_name, last_map) "
+                "VALUES (%s,%s,%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE platform=VALUES(platform), player_id=VALUES(player_id), "
+                "player_name=VALUES(player_name), last_map=VALUES(last_map)",
+                (str(qq), platform or self._platform_tag(), game, pid, pname, pmap))
             await conn.commit()
             await cur.close()
         finally:
@@ -2406,7 +2564,9 @@ class ZeroARKPlugin(Star):
         conn = await self._qq_db()
         try:
             cur = await conn.cursor(aiomysql.DictCursor)
-            await cur.execute("SELECT game, player_id, player_name, last_map FROM qq_bind WHERE qq=%s", (int(qq),))
+            await cur.execute(
+                "SELECT game, player_id, player_name, last_map, platform FROM qq_bind WHERE qq=%s",
+                (str(qq),))
             rows = await cur.fetchall()
             await cur.close()
             return {r['game']: r for r in rows}
@@ -2417,7 +2577,7 @@ class ZeroARKPlugin(Star):
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
-            await cur.execute("DELETE FROM qq_bind WHERE qq=%s AND game=%s", (int(qq), game))
+            await cur.execute("DELETE FROM qq_bind WHERE qq=%s AND game=%s", (str(qq), game))
             await conn.commit()
             deleted = cur.rowcount > 0
             await cur.close()
@@ -2429,7 +2589,8 @@ class ZeroARKPlugin(Star):
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
-            await cur.execute("SELECT COUNT(*) FROM qq_checkin WHERE qq=%s AND game=%s AND day=%s", (int(qq), game, day))
+            await cur.execute("SELECT COUNT(*) FROM qq_checkin WHERE qq=%s AND game=%s AND day=%s",
+                              (str(qq), game, day))
             n = (await cur.fetchone())[0]
             await cur.close()
             return bool(n)
@@ -2444,7 +2605,7 @@ class ZeroARKPlugin(Star):
             try:
                 await cur.execute(
                     "INSERT INTO qq_checkin (qq, game, day, points, server_name) VALUES (%s,%s,%s,%s,%s)",
-                    (int(qq), game, day, int(points), (server_name or '')[:100]))
+                    (str(qq), game, day, int(points), (server_name or '')[:100]))
             except Exception:
                 await conn.rollback()
                 return False
@@ -2459,7 +2620,7 @@ class ZeroARKPlugin(Star):
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
-            await cur.execute("DELETE FROM qq_checkin WHERE qq=%s AND game=%s AND day=%s", (int(qq), game, day))
+            await cur.execute("DELETE FROM qq_checkin WHERE qq=%s AND game=%s AND day=%s", (str(qq), game, day))
             await conn.commit()
             await cur.close()
         finally:
@@ -2536,7 +2697,7 @@ class ZeroARKPlugin(Star):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._execute_rcon_command_sync, target['host'], target['port'], cmd)
 
-    async def _signin_game(self, qq: str, game: str, bind_row: dict) -> str:
+    async def _signin_game(self, qq: str, game: str, bind_row: dict, in_group: bool = False) -> str:
         """对单个游戏执行一次签到：成功才落账，失败回滚可当天重试。返回展示文本"""
         cfg = self._signin_cfg()
         cn = self._game_cn(game)
@@ -2546,7 +2707,8 @@ class ZeroARKPlugin(Star):
         if not cmd_tpl:
             return f"❌ 未配置{cn}加点命令（config.json → signin.{key_prefix}_cmd），本次未加点"
         if not bind_row.get('player_id'):
-            return f"❌ 未查询到{cn}绑定，请先 /绑定 {cn} <ID>"
+            hint = "；若你已在私聊绑定，请改在私聊签到（群/私聊的用户标识可能不同）" if in_group else ""
+            return f"❌ 未查询到{cn}绑定，请先 /绑定 {cn} <ID>{hint}"
         day = self._today_str()
         if await self._checkin_exists(qq, game, day):
             return f"ℹ️ {cn}今天已签到过，明天再来吧"
@@ -2877,6 +3039,7 @@ class ZeroARKPlugin(Star):
     async def _signin_cmd(self, event):
         if not self._check_whitelist(event):
             return
+        in_group = bool(self._event_group_id(event))
         qq = self._sender_qq(event)
         if not qq:
             yield event.plain_result("❌ 无法获取你的QQ，请私聊机器人或确认适配器")
@@ -2888,18 +3051,27 @@ class ZeroARKPlugin(Star):
             yield event.plain_result(f"❌ 查询绑定失败: {e}")
             return
         if not binds:
-            yield event.plain_result("ℹ️ 请先绑定游戏ID再签到：\n/bind 或 /绑定 进化 <SteamID64>\n/bind 或 /绑定 飞升 <EOS 32位hex>")
+            if in_group:
+                yield event.plain_result(
+                    "ℹ️ 群里没有查到你的绑定。\n"
+                    "请**私聊机器人**完成绑定与签到：\n"
+                    "· /绑定 进化 <SteamID64>  或  /绑定 飞升 <EOS 32位hex>\n"
+                    "· 之后在私聊发 /签到 即可\n"
+                    "（群与私聊的用户标识可能不同，绑定/签到建议都在私聊完成；两边签到记录共用，同一天不会重复发点）")
+            else:
+                yield event.plain_result("ℹ️ 请先绑定游戏ID再签到：\n/bind 或 /绑定 进化 <SteamID64>\n/bind 或 /绑定 飞升 <EOS 32位hex>")
             return
         msgs = []
         async with self._signin_lock:
             for game in ("ASE", "ASA"):
                 if game in binds:
-                    msgs.append(await self._signin_game(qq, game, binds[game]))
+                    msgs.append(await self._signin_game(qq, game, binds[game], in_group=in_group))
         if any(str(m).startswith("✅") for m in msgs):
             msgs.append(GAME_CMD_TIPS)
         miss = [self._game_cn(g) for g in ("ASE", "ASA") if g not in binds]
         if miss:
-            msgs.append(f"ℹ️ 未绑定 {'、'.join(miss)}，绑定后也可每日领取")
+            tip = "（群/私聊身份可能不同，建议私聊机器人绑定并签到）" if in_group else ""
+            msgs.append(f"ℹ️ 未绑定 {'、'.join(miss)}，绑定后也可每日领取{tip}")
         yield event.plain_result("\n\n".join(msgs))
 
     @filter.command("bind")

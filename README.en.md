@@ -78,6 +78,12 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 | `/mybind` `/查绑定` | Show my bindings |
 | `/signin` `/签到` `/每日签到` | Daily check-in (ASE/ASA once per day each) |
 
+### QQ official bot additions (v1.2.0)
+| Command | Effect |
+| --- | --- |
+| `/whoami` | Show your platform ID (openid / QQ number) and group ID — used for `owner_qq`, whitelists and the notify group; bypasses the whitelist |
+| `/testpush` | Owner only: send a proactive test message to the notify group (verifies proactive-message quota/permission) |
+
 ### In game (type in game public chat; picked up from the chat DB)
 | Command | Effect |
 | --- | --- |
@@ -117,6 +123,15 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 > sanitized `config.example.json`.
 
 ---
+
+## QQ official bot (optional)
+
+1. AstrBot WebUI → **Bots → Create → QQ official bot (WebSocket)** (the QR "one-click create" fills appid/secret automatically);
+2. In the mobile QQ group robot settings enable **receive all group messages** and **bot may speak proactively in groups**;
+3. **openid**: the official bot cannot obtain real QQ numbers — identities are openids (DM `user_openid`, group `member_openid`). Fill `owner_qq` / `whitelist_groups` / `notify_group` / `update_notify_qq` with openids (get yours via `/我是谁`). Empirically the same user has the same openid in group and DM;
+4. **Binding**: in-game `qqbind <QQ number>` is unusable on the official channel; use the code flow (`/绑定 飞升 开绑` → `zsbind <code>` in game chat);
+5. **Automatic DB migration**: on startup the plugin converts `qq` from `BIGINT` to `VARCHAR(64)` and adds a `platform` column to `qq_bind` (needs ALTER privilege);
+6. Command panels / custom menu can be configured via the open-platform API: see [docs/qqofficial-commands.md](docs/qqofficial-commands.md).
 
 ## Configuration
 

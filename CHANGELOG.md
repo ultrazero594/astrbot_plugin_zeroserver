@@ -2,6 +2,34 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.2.0] - 2026-09-11
+
+### 新增 / Added
+- **QQ 官方机器人支持**：发送层自动识别平台，优先 `qq_official`（`platform.send_by_session`，群用 `group_openid`、私聊用 `user_openid`），否则回退 OneBot
+  - QQ official bot support: platform-aware sending, preferring `qq_official` (`send_by_session` with `group_openid` / `user_openid`) and falling back to OneBot
+- 新增 `/我是谁`（`/whoami`）：查看自己的平台 ID（openid/QQ号）与群标识，**不受白名单限制**（迁移期防自锁）
+  - New `/whoami`: show your platform ID (openid / QQ number) and group ID; bypasses the whitelist
+- 新增 `/测试推送`（`/testpush`，Owner）：在通知群主动发一条消息，验证主动消息权限/配额
+  - New `/testpush` (owner): send a proactive test message to the notify group
+- 新增文档 [docs/qqofficial-commands.md](docs/qqofficial-commands.md)：QQ 开放平台指令面板 / 自定义菜单的 API 配置指南与现成 JSON
+  - New docs page for QQ open-platform command panels & custom menu (API guide + ready-to-use payloads)
+
+### 优化 / Changed
+- 身份体系兼容 openid：绑定/签到主键支持字符串；`qq_bind` 增加 `platform` 列；启动时自动把 `qq` 列由 `BIGINT` 迁移为 `VARCHAR(64)`
+  - openid-compatible identities: string keys, new `platform` column, automatic `BIGINT` → `VARCHAR(64)` migration on startup
+- 群内 `/签到` 未命中绑定时引导到私聊绑定/签到（群与私聊身份可能不同，签到记录共用、不会重复发点）
+  - Group `/signin` now guides players to DM when the binding is not found
+- `@群友` 解析与兜底 ID 支持 openid（非纯数字）
+  - `@member` parsing and fallback IDs now accept openids (non-numeric)
+- 帮助（`/help`）重排并补充：官方渠道 `qqbind` 不可用、群聊需 @机器人、绑定主键说明
+  - Reworked `/help` with grouped sections and official-channel notes
+
+### 注意 / Notes
+- 官方机器人无法获取真实 QQ 号，绑定主键为 openid；从 OneBot 迁移的老绑定记录需玩家**重新绑定**一次
+  - The official bot cannot obtain real QQ numbers; bindings are keyed by openid, so existing OneBot bindings must be re-created
+- 官方渠道下游戏内 `qqbind <QQ号>` 不可用，请使用验证码流程（`开绑` → `zsbind`）
+  - In-game `qqbind <QQ number>` is unavailable on the official channel; use the code flow
+
 ## [1.1.0] - 2026-09-10
 
 ### 新增 / Added
@@ -79,6 +107,7 @@ An AstrBot plugin that queries ARK servers, binds QQ ↔ game accounts and runs 
 - 文档：`README.md`（中文）/ `README.en.md`（English）
 
 [1.0.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.1
+[1.2.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.1.0
 [1.0.3]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.3
 [1.0.2]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.2

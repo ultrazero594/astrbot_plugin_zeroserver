@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.18.4] - 2026-09-12
+
+### 修复 / Fixed
+- **`/我的ID` 显示"别人的 ID"的错觉**：它原来直接输出 `_resolve_identity()` 的结果，而 `/关联` 打通后这个值是**主身份**（比如 QQ 用户在 QQ 里查到的是 KOOK 那串 id），用户会以为查错了。现在**先显示当前平台自己的 ID**，若已关联再补一行「已关联到主身份：xxx」并说明游戏里 `qqbind` 两串都能用
+  - `/myid` used to print the resolved *main* identity, which after `/关联` is the other platform's id — confusing. It now prints the caller's own platform id first, and adds a line with the linked main identity when they differ
+
 ## [1.18.3] - 2026-09-12
 
 ### 修复 / Fixed

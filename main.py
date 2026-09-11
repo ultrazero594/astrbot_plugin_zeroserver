@@ -478,7 +478,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.3", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.4", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2680,7 +2680,8 @@ class ZeroARKPlugin(Star):
             yield r
 
     async def _myid_cmd(self, event):
-        """查自己的身份 ID（完整，专门给"去游戏里 qqbind 绑定"用；QQ 官方下私聊不可用，只能在会话里给全）"""
+        """查自己的身份 ID（完整，专门给"去游戏里 qqbind 绑定"用；QQ 官方下私聊不可用，只能在会话里给全）
+        优先给**当前平台自己的 ID**；若已用 /关联 打通，再附一行主身份（两串 qqbind 都能用）。"""
         if not self._check_whitelist(event):
             return
         qq = self._sender_qq(event)
@@ -2688,14 +2689,23 @@ class ZeroARKPlugin(Star):
             yield event.plain_result("❌ 无法获取你的身份 ID，请确认适配器")
             return
         plat = self._event_platform(event) or '未知平台'
-        in_game_id = await self._resolve_identity(qq)
+        own_id = str(qq)
+        main_id = str(await self._resolve_identity(qq) or '')
+        linked = bool(main_id) and main_id != own_id
         lines = [
             f"🆔 你的 {plat} 身份 ID：",
-            f"{in_game_id}",
+            own_id,
+        ]
+        if linked:
+            lines += [
+                f"🔗 已关联到主身份：{main_id}（两边共用绑定与签到）",
+                f"　 游戏里 qqbind 上面两串**都行**，用你自己这串最直观。",
+            ]
+        lines += [
             "",
             "用法（不用私聊验证码，最省事）：",
-            f"1️⃣ 复制上面这串 ID",
-            f"2️⃣ 进游戏，在公屏（聊天框）发：qqbind {in_game_id}",
+            "1️⃣ 复制上面那串 ID",
+            f"2️⃣ 进游戏，在公屏（聊天框）发：qqbind {own_id}",
             "3️⃣ 机器人会私聊/回你绑定结果，之后就能 /签到",
             "",
             "🔒 这串 ID 等于你的身份凭证，别发给别人（别人拿去可能替你绑定/解绑）。",

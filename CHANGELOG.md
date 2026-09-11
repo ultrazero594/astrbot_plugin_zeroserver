@@ -2,6 +2,13 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.18.5] - 2026-09-12
+
+### 修复 / Fixed
+- **游戏公屏出现"问号方块"**：实测（往 28 台发 TEST1/TEST2/TEST3 三行并读游戏画面）确认——**中文完全正常**（`中文测试汉字`、中文玩家名都显示无误），出问题的是 **emoji**：`💬`、`🦖` 这类字形 ARK 没有，渲染成"◇ 里带问号"的缺字形方块。而转发前缀恰好是 `💬 [QQ群]` / `💬 [KOOK]`
+  - 修法：①前缀去掉 emoji（`[QQ群]` / `[KOOK]`）；②新增 `_game_safe()` 统一清理**发往游戏公屏的文本**——剔除 emoji/符号区段（含 U+1F000–1FAFF、U+2600–27BF、U+2190–21FF、U+2B00–2BFF、U+2000–206F 通用标点、变体选择符/ZWJ 等），**中文与 ASCII 原样保留**；③三处 `serverchat`（QQ/KOOK 转发、倍率更新广播、游戏内跨服互转）都过一遍
+  - **Fixed the "question-mark boxes" in game chat**: an A/B test (three lines sent to all 28 servers, then read off the game screen) showed Chinese renders fine — only **emoji** become missing-glyph boxes. The relay prefix was `💬 [QQ群]`. Now: emoji-free prefixes, plus a `_game_safe()` sanitizer applied to every `serverchat` payload
+
 ## [1.18.4] - 2026-09-12
 
 ### 修复 / Fixed

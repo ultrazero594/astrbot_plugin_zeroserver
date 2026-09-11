@@ -240,8 +240,8 @@ DEFAULT_CONFIG = {
     "list_rcon_fallback": True,               # 列表查询失败时用 RCON 回退判定在线/人数
     "db_sources": [],                         # 游戏聊天库源（见 README 数据库一节）
     "qq_to_game_enabled": True,               # QQ 群消息转发进游戏（RCON serverchat）
-    "qq_forward_prefix": "💬 [QQ群]",
-    "kook_forward_prefix": "💬 [KOOK]",       # KOOK 频道消息转发进游戏时的前缀
+    "qq_forward_prefix": "[QQ群]",
+    "kook_forward_prefix": "[KOOK]",       # KOOK 频道消息转发进游戏时的前缀
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
     "broadcast_targets": [],
@@ -473,12 +473,12 @@ class CrossChatForwarder:
         if not targets:
             logger.debug(f"没有 {version} 的 RCON 目标，跳过转发")
             return
-        await self.plugin._send_rcon_concurrent(targets, f"serverchat {text}")
+        await self.plugin._send_rcon_concurrent(targets, f"serverchat {self.plugin._game_safe(text)}")
 
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.4", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.5", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -858,7 +858,7 @@ class ZeroARKPlugin(Star):
                         if len(parts) == 2:
                             short.append(parts[0].replace("🔄 ", "") + ":" + parts[1].split("→")[-1].strip())
                     broadcast = "服务器倍率已更新: " + " | ".join(short)
-                    await self._send_rcon_command_to_all(f"serverchat {broadcast}")
+                    await self._send_rcon_command_to_all(f"serverchat {self._game_safe(broadcast)}")
                     msg = "📊 【服务器倍率更新提醒】\n" + "\n".join(changes)
                     await self._send_notify(msg + self.footer)
                     self.last_rate_hash = new_hash
@@ -1134,6 +1134,22 @@ class ZeroARKPlugin(Star):
         '在线玩家': '_players_cmd', '在线': '_players_cmd',
         '签到': '_signin_cmd', '查绑定': '_mybind_cmd', '菜单': '_menu_cmd',
     }
+
+    # ARK 公屏能正常显示中文，但 emoji / 部分符号会变成"缺字形方块（◇里带问号）"→ 发往游戏前统一剔除
+    EMOJI_RE = re.compile(
+        "[\U0001F000-\U0001FAFF"      # emoji 与符号
+        "\U0001F1E6-\U0001F1FF"       # 区域指示符（国旗）
+        "\U00002600-\U000027BF"       # 杂项符号 / 装饰符号
+        "\U00002190-\U000021FF"       # 箭头
+        "\U00002B00-\U00002BFF"       # 杂项符号与箭头
+        "\U00002000-\U0000206F"       # 通用标点（弯引号、破折号、省略号…）
+        "\U0000FE0F\U0000200D\U000020E3"
+        "]+")
+
+    def _game_safe(self, text: str) -> str:
+        """发往游戏公屏前清理 ARK 显示不了的字形（emoji/符号），中文与 ASCII 原样保留"""
+        s = self.EMOJI_RE.sub('', str(text or ''))
+        return re.sub(r'[ \t]{2,}', ' ', s).strip()
 
     @staticmethod
     def _result_text(res) -> str:
@@ -4406,14 +4422,14 @@ class ZeroARKPlugin(Star):
                 logger.info(f"🔀 群间互通已转发到 {sent_n} 个目标")
 
         # ---------- QQ/KOOK → 游戏（RCON）转发（并发，避免单服超时阻塞整条链路） ----------
-        prefix = (self.config.get('kook_forward_prefix', '💬 [KOOK]') if platform_name == 'kook'
-                  else self.config.get('qq_forward_prefix', '💬 [QQ群]'))
+        prefix = (self.config.get('kook_forward_prefix', '[KOOK]') if platform_name == 'kook'
+                  else self.config.get('qq_forward_prefix', '[QQ群]'))
         game_message = f"{prefix} {sender_name}: {message}"
         targets = [t for t in self.rcon_targets if t.get('host') and t.get('port')]
         if not targets:
             logger.warning("⚠️ 没有可用的 RCON 目标，无法转发消息到游戏")
             return
-        await self._send_rcon_concurrent(targets, f"serverchat {game_message}")
+        await self._send_rcon_concurrent(targets, f"serverchat {self._game_safe(game_message)}")
 
     def _send_rcon_command_sync(self, host: str, port: int, command: str):
         if not self.rcon_password:

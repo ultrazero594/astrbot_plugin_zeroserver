@@ -455,7 +455,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.10.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.11.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2402,35 +2402,27 @@ class ZeroARKPlugin(Star):
                     "· /测试推送 → 测试主动消息通道 ｜ /更新地址 → 刷新直连地址缓存",
                     "· /关联 列表 → 查看身份关联 ｜ /关联 解除 @某人 → 强制解除他人关联",
                     "· /我是谁 → 查看自己的平台ID / 群标识",
+                    "· /测试按钮 → 试验：QQ 群消息带可点按钮",
                 ]
         else:
             lines = [
-                "📖 ZeroARK 机器人指令（进化=ASE / 飞升=ASA）",
-                "",
-                "【最常用】",
-                "· /在线玩家 [进化|飞升] [地图名] → 在线人数 + 部落名",
+                "📖 ZeroARK 指令（进化=ASE / 飞升=ASA）",
+                "· /在线玩家 [进化|飞升] [地图名] → 在线人数 + 部落",
                 "· /进化 [地图名] ｜ /飞升 [地图名] → 服务器状态",
-                "· /签到 → 每日领点数 ｜ /查绑定 → 查看我的绑定",
-                "",
-                "【完整清单】直接发下面指令看分类：",
-                "· /帮助 查询 → 在线玩家 / 状态 / 倍率 / 直连",
-                "· /帮助 绑定 → 绑定 / 开绑 / 解绑 / 关联 / 签到",
+                "· /签到 ｜ /查绑定 ｜ /绑定 ｜ /解绑 ｜ /关联",
+                "· 完整清单：/帮助 查询 ｜ /帮助 绑定"
+                + (" ｜ /帮助 管理" if show_admin_help else ""),
             ]
-            if show_admin_help:
-                lines.append("· /帮助 管理 → RCON / 加点 / 代加点 / 测试推送 / 关联管理")
             if is_kook and in_group:
-                lines += ["", "【本频道】直接发指令即可，不用 @机器人"]
+                lines.append("· 频道里直接发指令即可，不用 @机器人")
             elif in_group:
-                lines += ["", "【群里怎么用】先 @机器人 再发指令",
-                          "· 绑定/签到建议在私聊完成；群与私聊身份不同时用 /关联 打通"]
-                if not has_onebot:
-                    lines.append("· 绑定主键是 openid（官方机器人拿不到真实 QQ 号）")
+                lines.append("· 群里先 @机器人 再发指令" if not has_onebot
+                             else "· 群里先 @机器人 再发指令（绑定主键 openid）")
             else:
-                lines += ["", "【私聊】直接发指令即可"]
+                lines.append("· 私聊直接发指令即可")
             if self.config.get('bridge_enabled', False) and len(self._broadcast_targets()) > 1:
                 labels = "、".join(t['label'] or t['platform'] for t in self._broadcast_targets())
-                lines += ["", f"【消息互通】{labels} 之间互通；游戏内聊天会同时发到这些位置"]
-            lines += ["", "· /我是谁 → 查看自己的平台ID / 群标识 ｜ 🔒 群里 ID 一律打码"]
+                lines.append(f"· 消息互通：{labels}（含游戏内聊天）")
         invite = self._invite_line(platform_name)
         if invite:
             lines += ["", invite]
@@ -2460,6 +2452,75 @@ class ZeroARKPlugin(Star):
             result.chain.append(Plain("\n\n" + line))
         except Exception as e:
             logger.debug(f"回复附加互推信息失败: {e}")
+
+    @staticmethod
+    def _kb_payload(buttons: list) -> dict:
+        """构造 QQ 消息按钮（action.type=2：点击后把 data 里的文本当指令发出去），每行两个"""
+        rows = []
+        for i in range(0, len(buttons), 2):
+            row = []
+            for label, data in buttons[i:i + 2]:
+                row.append({
+                    "id": f"b{abs(hash(data)) % 1000000}",
+                    "render_data": {"label": label, "visited_label": label, "style": 1},
+                    "action": {"type": 2, "permission": {"type": 2}, "click_limit": 10,
+                               "data": data, "at_bot_show_channel_list": False},
+                })
+            rows.append({"buttons": row})
+        return {"rows": rows}
+
+    async def _qq_send_keyboard(self, event, group_openid: str, content: str, buttons: list) -> str:
+        """实验功能：绕过 AstrBot 消息链，直接调 botpy 发一条带按钮的 QQ 群消息"""
+        inst = self._find_platform_inst('qq_official')
+        if inst is None:
+            return "❌ 未找到 QQ 官方机器人适配器"
+        api = getattr(getattr(inst, 'client', None), 'api', None)
+        if api is None:
+            return "❌ 适配器上取不到 botpy api（版本差异）"
+        raw = getattr(getattr(event, 'message_obj', None), 'raw_message', None)
+        msg_id = str(getattr(raw, 'id', '') or '') or None
+        kwargs = {"group_openid": str(group_openid), "msg_type": 0,
+                  "content": content, "keyboard": self._kb_payload(buttons)}
+        try:
+            if msg_id:
+                kwargs["msg_id"] = msg_id      # 被动回复，走 msg_id 不消耗主动额度
+            ret = await api.post_group_message(**kwargs)
+            logger.info(f"🧪 QQ 按钮发送返回: {str(ret)[:200]}")
+            return f"✅ 已发送带按钮的消息\n返回：{str(ret)[:200]}"
+        except Exception as e:
+            detail = f"{type(e).__name__}: {e}"
+            logger.warning(f"🧪 QQ 按钮实验失败: {detail}")
+            return (f"❌ 发送失败：{detail[:260]}\n"
+                    f"（多半是没开通「按钮」能力，或该群/该机器人不允许使用）")
+
+    async def _test_kb_cmd(self, event):
+        """Owner 实验指令：在当前群发一条带按钮的消息"""
+        if not self._check_whitelist(event):
+            return
+        if not self._is_owner(event):
+            yield event.plain_result("ℹ️ 仅主人可用的实验指令")
+            return
+        if self._event_platform(event) != 'qq_official':
+            yield event.plain_result("ℹ️ 这个实验只针对 QQ 官方机器人（KOOK 请用指令面板）")
+            return
+        group_id = self._event_group_id(event) or self.config.get('notify_group')
+        if not group_id:
+            yield event.plain_result("❌ 拿不到群标识，请在群里发这个指令")
+            return
+        buttons = [("在线玩家", "/在线玩家"), ("签到", "/签到"),
+                   ("查绑定", "/查绑定"), ("帮助", "/帮助查询")]
+        yield event.plain_result(await self._qq_send_keyboard(
+            event, group_id, "👇 试试点按钮直接发指令（实验功能）", buttons))
+
+    @filter.command("测试按钮")
+    async def test_kb_cmd_cn(self, event: AstrMessageEvent):
+        async for r in self._test_kb_cmd(event):
+            yield r
+
+    @filter.command("testkb")
+    async def test_kb_cmd_en(self, event: AstrMessageEvent):
+        async for r in self._test_kb_cmd(event):
+            yield r
 
     @filter.command("help")
     async def help_command(self, event: AstrMessageEvent):

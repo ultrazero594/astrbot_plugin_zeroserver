@@ -2,6 +2,17 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.11.0] - 2026-09-11
+
+### 新增 / Added
+- **实验：QQ 群消息带可点按钮**（Owner 指令 `/测试按钮`）——绕过 AstrBot 消息链，直接调 botpy 的 `post_group_message(keyboard=...)` 发送按钮；按钮 `action.type=2`（点击即把预设文本当指令发出）。按钮失败会原样回报错误信息便于定位（多半是 QQ 开放平台未开通「按钮」能力）
+  - **Experimental QQ inline buttons** (owner command `/testkb`): bypasses the AstrBot message chain and calls botpy's `post_group_message(keyboard=...)` directly; buttons use `action.type=2` (clicking sends the preset text as a command). Failures report the raw error for diagnosis
+- 命令与按钮映射：在线玩家 / 签到 / 查绑定 / 帮助查询
+
+### 优化 / Changed
+- **`/帮助` 总览再瘦身到 10 行以内**（QQ 群普通版 7 行）：去掉分节标题与空行，改成「3 条最常用 + 一行指令汇总 + 平台提示 + 互通提示」，细节全部走 `/帮助 查询|绑定|管理`
+  - `/help` overview slimmed to under 10 lines (7 for a regular QQ group): three most-used commands, one summary line, one platform hint, one relay hint; details live in `/help 查询|绑定|管理`
+
 ## [1.10.0] - 2026-09-11
 
 ### 优化 / Changed

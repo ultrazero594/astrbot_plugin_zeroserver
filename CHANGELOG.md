@@ -2,6 +2,15 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.13.0] - 2026-09-11
+
+### 新增 / Added
+- **服务器上/下线提醒**：随 `check_interval_minutes` 周期（默认 10 分钟）并发探测每台服务器的 RCON，状态发生变化时把提醒推送到 `broadcast_targets`（QQ 群 + KOOK 频道）
+  - 首轮只建立基线**不播报**（避免重启后一次性刷 28 条）；**连续 `status_notify_fail_threshold`（默认 2）次探测失败**才判定离线，防抖动误报；恢复则立即播报；单条消息最多列 `status_notify_limit`（默认 8）条变化
+  - 配置：`status_notify_enabled`（默认 `true`）、`status_notify_fail_threshold`、`status_notify_limit`
+- 新增指令 `/状态`（`/serverstatus`）：查看当前各服务器在线 / 离线 / 未知一览
+- Server up/down notifications, probed over RCON each cycle; first round only builds a baseline, offline requires N consecutive failures (anti-flapping), recovery is reported immediately; new `/状态` command lists the snapshot
+
 ## [1.12.0] - 2026-09-11
 
 ### 新增 / Added

@@ -247,6 +247,10 @@ DEFAULT_CONFIG = {
     # 新人首次互动时附一句欢迎引导（插件收不到"入群事件"，用首次交互替代）
     "welcome_new_user": True,
     "welcome_text": "👋 欢迎新朋友～发 /帮助 看我都会啥；/在线玩家 查在线，/签到 领点数",
+    # 服务器上/下线提醒（按 RCON 探测结果，状态变化时推送到广播目标）
+    "status_notify_enabled": True,
+    "status_notify_fail_threshold": 2,   # 连续失败几次才算离线（防抖）
+    "status_notify_limit": 8,            # 单条播报最多列几条变化
     # QQ 开放平台申请到「消息按钮模板」后填模板 id（填了就用模板发送按钮，否则用内联按钮实验）
     "qq_keyboard_template_id": "",
     # 隐私：/在线玩家 名单里的游戏ID是否打码（默认打码，改为 false 则显示完整 ID）
@@ -460,7 +464,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.12.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.13.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -492,6 +496,8 @@ class ZeroARKPlugin(Star):
         self.seen_cache_files = set()
         self._background_tasks.append(asyncio.create_task(self._check_cache_updates()))
         logger.info("✅ 缓存更新检测任务已创建")
+        # 服务器状态基线（启动后尽快探测一次，避免首轮 10 分钟空窗）
+        self._background_tasks.append(asyncio.create_task(self._initial_status_baseline()))
 
         # QQ 绑定 / 签到：初始化数据表（幂等；失败只记日志，不影响主流程）
         # _qq_tables_ready：首次检查通过后置 True，后续命令直接返回，
@@ -503,6 +509,8 @@ class ZeroARKPlugin(Star):
         self._pending_codes = {}
         self._pending_links = {}
         self._seen_users = None
+        self._server_status = {}
+        self._status_baseline_done = False
         self._bind_chat_conns = {}
         self._background_tasks.append(asyncio.create_task(self._bind_watcher()))
 
@@ -677,6 +685,83 @@ class ZeroARKPlugin(Star):
         await self._fetch_rcon_data()
         self._build_rcon_targets()
         await self._check_rate_update()
+        await self._check_server_status()
+
+    async def _check_server_status(self):
+        """服务器上/下线监控：并发探测每个 RCON 目标，状态变化时推送到广播目标。
+        ① 首轮只建基线不播报；② 连续 fail_threshold 次探测失败才判定离线（防抖）；
+        ③ 恢复立即播报；④ 一轮最多报 limit 条，多的折叠成一行。"""
+        if not self.config.get('status_notify_enabled', True):
+            return
+        targets = [t for t in (self.rcon_targets or []) if t.get('host') and t.get('port')]
+        if not targets or not self.rcon_password:
+            return
+        threshold = max(1, int(self.config.get('status_notify_fail_threshold', 2)))
+        limit = max(1, int(self.config.get('status_notify_limit', 8)))
+        loop = asyncio.get_running_loop()
+        try:
+            oks = await asyncio.gather(*[
+                loop.run_in_executor(None, self._rcon_online_sync, t['host'], t['port'])
+                for t in targets], return_exceptions=True)
+        except Exception as e:
+            logger.debug(f"服务器状态探测异常: {e}")
+            return
+        events = []
+        for t, ok in zip(targets, oks):
+            name = str(t.get('name') or f"{t.get('host')}:{t.get('port')}")
+            st = self._server_status.get(name) or {'online': None, 'fails': 0}
+            ok = bool(ok) if not isinstance(ok, Exception) else False
+            if ok:
+                if st.get('online') is False:
+                    events.append(f"✅ 已恢复：{name}")
+                st = {'online': True, 'fails': 0}
+            else:
+                fails = int(st.get('fails', 0)) + 1
+                if st.get('online') is not False and fails >= threshold:
+                    if st.get('online') is True:
+                        events.append(f"⚠️ 已离线：{name}")
+                    st = {'online': False, 'fails': fails}
+                else:
+                    st = {'online': st.get('online'), 'fails': fails}
+            self._server_status[name] = st
+        first_round = not self._status_baseline_done
+        self._status_baseline_done = True
+        if first_round or not events:
+            if first_round:
+                online_n = sum(1 for v in self._server_status.values() if v.get('online'))
+                logger.info(f"🖥️ 服务器状态基线已建立：{online_n}/{len(targets)} 在线（首轮不播报）")
+            return
+        shown, rest = events[:limit], events[limit:]
+        text = "🖥️ 【服务器状态变化】\n" + "\n".join(shown)
+        if rest:
+            text += f"\n…另有 {len(rest)} 条变化（省略）"
+        logger.info(f"🖥️ 服务器状态变化播报 {len(events)} 条")
+        await self._broadcast(text)
+
+    async def _initial_status_baseline(self):
+        """启动后尽快建立服务器状态基线（最多等 90 秒直到 RCON 目标与密码就绪）"""
+        for _ in range(45):
+            if self.rcon_targets and self.rcon_password:
+                try:
+                    await self._check_server_status()
+                except Exception as e:
+                    logger.debug(f"启动状态基线探测失败: {e}")
+                return
+            await asyncio.sleep(2)
+
+    def _status_summary(self) -> str:
+        """当前已知的服务器状态摘要（/状态 用）"""
+        if not self._server_status:
+            return "ℹ️ 还没有状态数据（等一轮检查后再试）"
+        on = [k for k, v in self._server_status.items() if v.get('online')]
+        off = [k for k, v in self._server_status.items() if v.get('online') is False]
+        unk = [k for k, v in self._server_status.items() if v.get('online') is None]
+        out = [f"🖥️ 服务器状态（在线 {len(on)} / 离线 {len(off)} / 未知 {len(unk)}）"]
+        if off:
+            out.append("离线：\n" + "\n".join(f"· {x}" for x in off[:15]))
+        if unk:
+            out.append("未知：\n" + "\n".join(f"· {x}" for x in unk[:10]))
+        return "\n".join(out)
 
     async def _send_rcon_command_to_all(self, command: str):
         """向全部 RCON 目标并发发送命令（单个失败不影响其它目标）"""
@@ -2324,6 +2409,22 @@ class ZeroARKPlugin(Star):
             lines += ["🔒 公共区域已对你的 ID 打码；需要完整 ID 请私聊机器人再发 /我是谁。"]
         yield event.plain_result("\n".join(lines))
 
+    async def _status_cmd(self, event):
+        """查看各服务器在线/离线一览"""
+        if not self._check_whitelist(event):
+            return
+        yield event.plain_result(self._status_summary())
+
+    @filter.command("状态")
+    async def status_cmd_cn(self, event: AstrMessageEvent):
+        async for r in self._status_cmd(event):
+            yield r
+
+    @filter.command("serverstatus")
+    async def status_cmd_en(self, event: AstrMessageEvent):
+        async for r in self._status_cmd(event):
+            yield r
+
     async def _test_push_cmd(self, event):
         """Owner 专用：让机器人在通知群主动发一条消息，验证官方机器人的主动发言权限/配额"""
         if not self._check_whitelist(event):
@@ -2383,6 +2484,7 @@ class ZeroARKPlugin(Star):
                 "· /查服 <IP:端口 或 地图名> [进化|飞升] → 通用查询",
                 "· /倍率 → 当前动态倍率",
                 "· /直连 → 所有地图直连地址",
+                "· /状态 → 各服务器在线 / 离线一览",
             ]
         elif sec in ('绑定', '账号', 'bind', 'signin'):
             lines = [

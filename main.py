@@ -36,12 +36,13 @@ FOOTER_ASA = "\n\n"
 
 # ======================== 旧绑定（OneBot 时代 QQ 号主键）引导文案 ========================
 BIND_GUIDE = (
-    "\n\n📝 绑定三步（推荐，可换绑、也能自动接回旧账号）：\n"
-    "1️⃣ 先在 QQ 里添加机器人为好友（点它头像 → 加好友），否则收不到私聊验证码\n"
-    "2️⃣ 保持你的游戏角色在线\n"
-    "3️⃣ 发：/绑定 进化 开绑（飞升就发 /绑定 飞升 开绑）→ 验证码私发给你 → 游戏公屏发：zsbind <验证码>\n"
-    "也可以直接发 ID 绑定（无需私聊）：/绑定 进化 <SteamID64> ｜ /绑定 飞升 <EOS 32位hex>\n"
-    "🇶 老玩家注意：以前用 QQ 号绑定的记录已失效，走上面三步会自动接回你原来的账号。")
+    "\n\n📝 绑定方式（选一种即可）：\n"
+    "① 直接绑定（推荐，随时可用、不需要私聊）：\n"
+    "   /绑定 进化 <SteamID64 17位数字>　或　/绑定 飞升 <EOS 32位hex>\n"
+    "② 换绑：先发 /解绑 进化（或 /解绑 飞升），再用上面方式重新绑定\n"
+    "③ 验证码开绑（需要机器人能私聊你；QQ 个人认证暂不支持私聊，可能收不到码）\n"
+    "   /绑定 进化 开绑 → 收验证码 → 游戏公屏发：zsbind <验证码>\n"
+    "🇶 老玩家注意：以前用 QQ 号绑定的记录已失效，重新绑定会自动接回你原来的账号。")
 LEGACY_BIND_HINT = BIND_GUIDE   # 兼容旧引用
 
 # ======================== 地图名称中英文映射（进化ASE/飞升ASA 分开；英文只保留地址表中出现的） ========================
@@ -468,7 +469,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.13.3", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.14.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2500,8 +2501,8 @@ class ZeroARKPlugin(Star):
         elif sec in ('绑定', '账号', 'bind', 'signin'):
             lines = [
                 "📖 绑定 / 签到",
-                "· /绑定 进化 <SteamID64> ｜ /绑定 飞升 <EOS 32位hex> → 首次绑定",
-                "· /绑定 <进化|飞升> 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>（换绑也走这个）",
+                "· /绑定 进化 <SteamID64> ｜ /绑定 飞升 <EOS 32位hex> → 直接绑定（推荐）",
+                "· 换绑：先 /解绑 <进化|飞升>，再重新绑定（机器人能私聊你时也可用 /绑定 <游戏> 开绑 走验证码）",
                 f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
                 "· /查绑定 → 查看我的绑定 ｜ /解绑 <进化|飞升> → 解除绑定",
                 "· /关联 → QQ ↔ KOOK 身份打通（同一游戏账号自动关联，也可 /关联 开码 手动）",
@@ -3660,10 +3661,10 @@ class ZeroARKPlugin(Star):
             if not ok:
                 self._pending_codes.pop(code, None)
                 yield event.plain_result(
-                    "❌ 验证码私发失败：机器人无法私聊到你。可能原因与处理：\n"
-                    "· 你还没加机器人为好友 → 在 QQ 里点机器人头像添加后再试\n"
-                    "· 机器人侧限制 → QQ 开放平台「好友（私聊）」里打开「允许被其他 QQ 用户添加使用」\n"
-                    "验证码不会发到群里以防冒绑；也可以先用 ID 直接绑定：/绑定 飞升 <EOS 32位hex>")
+                    "❌ 验证码私发失败：机器人无法私聊到你。\n"
+                    "· QQ 开放平台的「允许被其他 QQ 用户添加使用」目前只对企业开发者灰度开放，个人认证账号开不了 → 普通玩家收不到私聊\n"
+                    "· 请改用直接绑定（无需私聊）：/绑定 飞升 <EOS 32位hex>　或　/绑定 进化 <SteamID64>\n"
+                    "· 换绑：先 /解绑 飞升，再重新绑定")
                 return
             yield event.plain_result(f"🎫 {self._game_cn(game)} 开绑成功，验证码已私发给你（{ttl} 秒有效，请勿外传）。\n下一步：{hint}")
             return

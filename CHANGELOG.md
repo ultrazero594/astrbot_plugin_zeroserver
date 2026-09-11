@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.14.0] - 2026-09-12
+
+### 变更 / Changed
+- **绑定流程改以「直接绑定」为主路径**：QQ 开放平台的「允许被其他 QQ 用户添加使用」**只对企业开发者灰度开放，个人认证开发者无法开启** → 普通玩家拿不到机器人私聊，验证码开绑走不通。因此：
+  - `BIND_GUIDE` 改为「① 直接绑定（推荐，不需私聊）② 换绑＝先 `/解绑` 再绑定 ③ 验证码开绑（需机器人能私聊你，个人认证暂不支持）」三选一
+  - 私聊发码失败的提示直接点明原因（个人认证无法开通该能力）并给出替代路径
+  - `/帮助 绑定` 分类页同步：首行改为「直接绑定（推荐）」，换绑改为「先 /解绑 再重新绑定」
+  - Direct-ID binding is now the primary path, because "allow other QQ users to add the bot" is enterprise-only (gradual rollout) — individual-certified bots cannot enable it, so users never receive the DM code. Rebinding is now "unbind, then bind again"; code-based binding remains as an alternative
+- `/help 绑定` section updated accordingly
+
 ## [1.13.3] - 2026-09-12
 
 ### 修复 / Fixed

@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.18.3] - 2026-09-12
+
+### 修复 / Fixed
+- **@机器人 发的指令不再被转发到游戏公屏**（用户报"kook和qq群@机器人发送指令，会被传消息"）：原来只靠 `event.is_at_or_wake_command` 判断"这是给机器人的指令，别转发"，但适配器给的 `@` 有时**不会被识别成 wake**（`At.qq` 与 `get_self_id()` 不一致），该标记为 False → 消息继续走到"转发到游戏 + 群间互通"分支，指令被刷进游戏公屏。现在加了兜底 `_at_bot()`：扫消息组件（`At` / `AtAll`）并在文本里找 `[At:` / `(met)`，只要**@了机器人（或@全体）**或**看起来像指令**就一律不转发（也不再对已 @ 过的消息回"请先 @"的提示）
+  - **Commands sent with an @mention are no longer relayed to the game** — the old guard relied solely on `is_at_or_wake_command`, which the adapters sometimes fail to set for mentions (mismatch between `At.qq` and `get_self_id()`), so the message fell through to the game-relay branch. A new `_at_bot()` fallback inspects message components and text; anything addressed to the bot (or looking like a command) is skipped
+
 ## [1.18.2] - 2026-09-12
 
 ### 变更 / Changed

@@ -478,7 +478,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.3", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -920,6 +920,26 @@ class ZeroARKPlugin(Star):
             return False
         first = body.split()[0].lower()
         return slash or first in {c.lower() for c in self.CMD_HINTS}
+
+    def _at_bot(self, event) -> bool:
+        """消息里是否 @ 了机器人 / @全体（兜底用：适配器的 @ 有时没被 AstrBot 识别成 wake，
+        于是 is_at_or_wake_command 为 False，不能只靠它判断"这是对着机器人说的"）"""
+        try:
+            self_id = str(event.get_self_id() or '')
+        except Exception:
+            self_id = ''
+        try:
+            for comp in (event.get_messages() or []):
+                cname = type(comp).__name__.lower()
+                if 'atall' in cname:
+                    return True          # @全体也视为"喊话"，不往游戏公屏转
+                if cname.startswith('at') and getattr(comp, 'qq', None) is not None:
+                    if not self_id or str(getattr(comp, 'qq')) == self_id:
+                        return True
+        except Exception:
+            pass
+        text = str(getattr(event, 'message_str', '') or '')
+        return ('[At:' in text) or ('(met)' in text)
 
     async def _wait_platform(self, platform_name: str, purpose: str = "", timeout: float = 20.0):
         """等待指定平台适配器就绪；超时返回 None（避免后台任务无限等待）"""
@@ -4324,12 +4344,16 @@ class ZeroARKPlugin(Star):
             return
 
         # 群里没 @机器人 就发指令：AstrBot 不会把它派发给指令处理器，这里给一次提示（KOOK 频道不需要 @）
-        if platform_name != 'kook' and self._looks_like_command(message):
-            logger.info(f"💡 群内未 @机器人 的指令，已回提示: {message[:30]}")
-            await self._send_group_text(platform_name, group_id,
-                                        "💡 群里发指令要先 @机器人 哦～\n例如：@机器人 /帮助")
-            return
-        if message.startswith('/'):
+        # 另外：@机器人 的消息 / 像指令的消息一律**不转发**到游戏公屏与互通目标
+        # （适配器的 @ 有时没被识别成 wake，只靠 is_at_or_wake_command 会漏判，导致指令被刷进游戏）
+        addressed = self._at_bot(event)
+        looks_cmd = self._looks_like_command(message)
+        if addressed or looks_cmd:
+            logger.info(f"⏭️ 判定为对机器人的指令（@={addressed} 疑似指令={looks_cmd}），不转发: {message[:40]}")
+            if looks_cmd and not addressed and platform_name != 'kook':
+                logger.info(f"💡 群内未 @机器人 的指令，已回提示: {message[:30]}")
+                await self._send_group_text(platform_name, group_id,
+                                            "💡 群里发指令要先 @机器人 哦～\n例如：@机器人 /帮助")
             return
 
         # ---------- LLM 自动回复（可选） ----------

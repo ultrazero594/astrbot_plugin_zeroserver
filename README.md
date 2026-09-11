@@ -92,6 +92,8 @@ astrbot_plugin_zeroserver/
 > 商店聊天指令（`/points`、`/shop`、`/buy` 等）由游戏内 **ArkShop** 插件提供，本机器人不处理。
 
 > QQ 官方机器人的「指令」登记清单（可直接照抄到 q.qq.com）：[docs/qqofficial-commands.md](docs/qqofficial-commands.md)
+>
+> **KOOK 与 QQ 的指令说明（怎么发、平台差异、按钮/面板怎么配）：[docs/commands.md](docs/commands.md)**
 
 ### 管理指令（仅 `owner_qq` 私聊生效，群聊忽略）
 | 指令 | 作用 |

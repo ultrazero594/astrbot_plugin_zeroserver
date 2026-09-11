@@ -93,6 +93,8 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 > Shop chat commands (`/points`, `/shop`, `/buy`, ...) belong to the in-game **ArkShop** plugin, not this bot.
 
 > QQ official bot 「commands」 registration checklist (copy-paste for q.qq.com): [docs/qqofficial-commands.md](docs/qqofficial-commands.md)
+>
+> **Command reference for KOOK & QQ (how to send, platform differences, panels/buttons): [docs/commands.md](docs/commands.md)** (Chinese)
 
 ### Admin (owner_qq only; DM only, ignored in groups)
 | Command | Effect |

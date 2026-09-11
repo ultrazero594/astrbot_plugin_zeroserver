@@ -13,8 +13,12 @@
   "list_rcon_fallback": true,
   "db_sources": [],
   "qq_to_game_enabled": true,
-  "qq_forward_prefix": "💬 [QQ群]",
-  "kook_forward_prefix": "💬 [KOOK]",
+  "qq_forward_prefix": "[QQ群]",
+  "kook_forward_prefix": "[KOOK]",
+  "game_send_via": "rcon",
+  "cca_map_label": "QQ群",
+  "cca_map_label_kook": "KOOK",
+  "cca_fallback_rcon": true,
   "broadcast_targets": [
     { "platform": "qq_official", "id": "你的QQ群openid或群号", "label": "QQ群" },
     { "platform": "kook", "id": "你的KOOK频道ID", "label": "KOOK公共频道" }

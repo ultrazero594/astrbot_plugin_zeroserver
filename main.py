@@ -242,6 +242,12 @@ DEFAULT_CONFIG = {
     "qq_to_game_enabled": True,               # QQ 群消息转发进游戏（RCON serverchat）
     "qq_forward_prefix": "[QQ群]",
     "kook_forward_prefix": "[KOOK]",       # KOOK 频道消息转发进游戏时的前缀
+    # QQ/KOOK → 游戏公屏 的发送通道：rcon（默认，任何环境可用）| cca（写 CrossChatAscended 的表，
+    # 借用它的跨服通道与格式；只有装了 CCA 的服会显示）
+    "game_send_via": "rcon",
+    "cca_map_label": "QQ群",          # 写 CCA 时 Map 字段用的标签（也用它识别"自己写的行"防回声）
+    "cca_map_label_kook": "KOOK",
+    "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
     "broadcast_targets": [],
@@ -409,9 +415,12 @@ class CrossChatForwarder:
                 if messages:
                     self.last_ids[src_id] = max(m.get('Id', 0) for m in messages)
                     # 过滤掉"已转发"消息（含转发标记），防止跨服/跨QQ无限循环；绑定指令（qqbind/zsbind）也只由绑定监听消费，不再转发
+                    # 另外跳过我们自己写进 CCA 表的行（Map = cca 标签），否则 QQ→游戏 的消息会被读回来又发回 QQ（回声）
+                    _cca_labels = self.plugin._cca_labels()
                     fresh = [m for m in messages
                              if not self._is_relayed(str(m.get('Message', '')))
-                             and not _is_bind_chat(str(m.get('Message', '')))]
+                             and not _is_bind_chat(str(m.get('Message', '')))
+                             and str(m.get('Map', '')) not in _cca_labels]
                     skipped = len(messages) - len(fresh)
                     if skipped:
                         logger.info(f"🔁 源 {src_id} 跳过 {skipped} 条已转发消息（防循环）")
@@ -478,7 +487,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.5", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1150,6 +1159,54 @@ class ZeroARKPlugin(Star):
         """发往游戏公屏前清理 ARK 显示不了的字形（emoji/符号），中文与 ASCII 原样保留"""
         s = self.EMOJI_RE.sub('', str(text or ''))
         return re.sub(r'[ \t]{2,}', ' ', s).strip()
+
+    # ======================== CCA（CrossChatAscended）通道 ========================
+    def _cca_label_for(self, platform_name: str) -> str:
+        key = 'cca_map_label_kook' if (platform_name or '') == 'kook' else 'cca_map_label'
+        return str(self.config.get(key) or ('KOOK' if key.endswith('kook') else 'QQ群'))
+
+    def _cca_labels(self) -> set:
+        """我们自己写进 CCA 表时用的 Map 标签集合（用于在跨服转发时跳过这些行，防回声）"""
+        return {str(self.config.get('cca_map_label') or 'QQ群'),
+                str(self.config.get('cca_map_label_kook') or 'KOOK')}
+
+    async def _cca_send(self, platform_name: str, sender: str, message: str) -> bool:
+        """把消息写进 CrossChatAscended 的 cross_chat 表：各服装有 CCA 就会自动打印（带 CCA 的格式/颜色）"""
+        srcs = [s for s in (self.config.get('db_sources') or [])
+                if str(s.get('id')) in ('asa_chat', 'ase_chat') and s.get('host') and s.get('user')]
+        if not srcs:
+            logger.warning("⚠️ 未配置 asa_chat / ase_chat 数据源，无法走 CCA 通道")
+            return False
+        label = self._cca_label_for(platform_name)[:50]
+        sender = self._game_safe(sender)[:100]
+        message = self._game_safe(message)[:250]
+        ok_any = False
+        for src in srcs:
+            ase = str(src.get('id')) == 'ase_chat'
+            table = src.get('table', 'cross_chat')
+            if ase:      # ASE 表用 SteamId，没有 SenderPlatform 列
+                cols = "(`SteamId`,`Map`,`Sender`,`Message`,`TribeName`,`TribeId`,`Mode`,`Tags`,`isPm`,`PmRecipient`)"
+                vals = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                args = (0, label, sender, message, '', 0, 0, '', 0, '')
+            else:        # ASA 表
+                cols = ("(`EOSid`,`Map`,`Sender`,`Message`,`SenderPlatform`,`TribeName`,`TribeId`,"
+                        "`Mode`,`Tags`,`isPm`,`PmRecipient`)")
+                vals = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                args = ('', label, sender, message, 0, '', 0, 0, '', 0, '')
+            try:
+                conn = await aiomysql.connect(host=src.get('host'), port=int(src.get('port') or 3306),
+                                              user=src.get('user'), password=src.get('password'),
+                                              db=src.get('database'), charset='utf8mb4',
+                                              autocommit=True, connect_timeout=5)
+                cur = await conn.cursor()
+                await cur.execute(f"INSERT INTO {table} {cols} VALUES {vals}", args)
+                await cur.close()
+                conn.close()
+                ok_any = True
+                logger.info(f"✅ 已写入 CCA（{src.get('id')}）: [{label}] {sender}: {message[:40]}")
+            except Exception as e:
+                logger.error(f"❌ 写入 CCA 失败（{src.get('id')}）: {type(e).__name__}: {e}")
+        return ok_any
 
     @staticmethod
     def _result_text(res) -> str:
@@ -4421,7 +4478,15 @@ class ZeroARKPlugin(Star):
             if sent_n:
                 logger.info(f"🔀 群间互通已转发到 {sent_n} 个目标")
 
-        # ---------- QQ/KOOK → 游戏（RCON）转发（并发，避免单服超时阻塞整条链路） ----------
+        # ---------- QQ/KOOK → 游戏（RCON 或 CCA 通道；并发，避免单服超时阻塞整条链路） ----------
+        via = str(self.config.get('game_send_via') or 'rcon').strip().lower()
+        if via == 'cca':
+            if await self._cca_send(platform_name, sender_name, message):
+                return
+            if not self.config.get('cca_fallback_rcon', True):
+                logger.warning("⚠️ CCA 通道失败，且 cca_fallback_rcon=false，本条不再发往游戏")
+                return
+            logger.warning("⚠️ CCA 通道失败，回退 RCON 发送")
         prefix = (self.config.get('kook_forward_prefix', '[KOOK]') if platform_name == 'kook'
                   else self.config.get('qq_forward_prefix', '[QQ群]'))
         game_message = f"{prefix} {sender_name}: {message}"

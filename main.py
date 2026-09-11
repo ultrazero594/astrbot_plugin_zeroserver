@@ -446,7 +446,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.6.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.7.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -487,6 +487,7 @@ class ZeroARKPlugin(Star):
 
         # 游戏内绑定监听（玩家在游戏公屏输入 qqbind/zsbind）
         self._pending_codes = {}
+        self._pending_links = {}
         self._bind_chat_conns = {}
         self._background_tasks.append(asyncio.create_task(self._bind_watcher()))
 
@@ -767,7 +768,7 @@ class ZeroARKPlugin(Star):
     # 群里"没 @机器人 就发指令"时用于识别并提示的命令名
     CMD_HINTS = ("绑定", "解绑", "查绑定", "签到", "在线玩家", "在线", "谁在线", "进化", "飞升", "查服",
                  "倍率", "直连", "帮助", "我是谁", "代加点", "加点", "rcon", "测试推送", "更新地址",
-                 "bind", "unbind", "mybind", "signin", "players", "help", "whoami")
+                 "bind", "unbind", "mybind", "signin", "players", "help", "whoami", "关联", "link")
 
     def _looks_like_command(self, text: str) -> bool:
         """判断一条群消息是不是"想发指令但没 @机器人"（首 token 精确等于某个命令名，或带 / 前缀）"""
@@ -968,8 +969,14 @@ class ZeroARKPlugin(Star):
             logger.error(f"❌ 平台发送群消息失败: {e}")
         return False
 
-    async def _send_private_msg(self, user_id, message: str) -> bool:
-        """主动发送私聊消息：优先 QQ 官方机器人（openid），其次 OneBot（QQ号）"""
+    async def _send_private_msg(self, user_id, message: str, platform: str = '') -> bool:
+        """主动发送私聊消息：platform 指定时用该平台（KOOK 等），否则按 QQ 官方 → OneBot 回退"""
+        plat = (platform or '').strip()
+        if plat and plat != 'aiocqhttp':
+            inst = await self._wait_platform(plat, f"私聊发送({str(user_id)[:12]})")
+            if inst is None:
+                return False
+            return await self._official_send(inst, 'private', str(user_id), message)
         kind, obj = await self._wait_qq_adapter("私聊消息发送")
         if kind == 'qq_official':
             return await self._official_send(obj, 'private', str(user_id), message)
@@ -2365,6 +2372,7 @@ class ZeroARKPlugin(Star):
             "· /绑定 <进化|飞升> 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>（换绑也走这个）",
             f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
             "· /查绑定 → 查看我的绑定 ｜ /解绑 <进化|飞升> → 解除绑定",
+            "· /关联 → QQ ↔ KOOK 身份打通（一边绑定，两边都能签到）",
             "· QQ 与 KOOK 是两套身份：两边都要签到，就得各绑一次（同一个人的两侧不互通）",
         ]
         if is_kook and in_group:
@@ -2662,6 +2670,15 @@ class ZeroARKPlugin(Star):
                         KEY idx_game_player_day (game, player_id, day)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS qq_link (
+                        ident VARCHAR(64) NOT NULL,
+                        alias_of VARCHAR(64) NOT NULL,
+                        platform VARCHAR(16) NOT NULL DEFAULT '',
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (ident)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
 
             async def _col_type(table, col):
                 await cur.execute(
@@ -2762,6 +2779,7 @@ class ZeroARKPlugin(Star):
         return ""
 
     async def _bind_upsert(self, qq, game, pid, pname="", pmap="", platform=""):
+        qq = await self._resolve_identity(qq)
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
@@ -2807,7 +2825,82 @@ class ZeroARKPlugin(Star):
         finally:
             conn.close()
 
+    async def _resolve_identity(self, qq) -> str:
+        """把当前身份解析到"主身份"：QQ 与 KOOK 用 /关联 打通后，两边共用同一份绑定与签到记录"""
+        cur_ident = str(qq or '')
+        if not cur_ident:
+            return cur_ident
+        try:
+            conn = await self._qq_db()
+        except Exception:
+            return cur_ident
+        try:
+            c = await conn.cursor()
+            for _ in range(5):
+                await c.execute("SELECT alias_of FROM qq_link WHERE ident=%s", (cur_ident,))
+                r = await c.fetchone()
+                if not r or not r[0] or str(r[0]) == cur_ident:
+                    break
+                cur_ident = str(r[0])
+            await c.close()
+            return cur_ident
+        except Exception:
+            return str(qq or '')
+        finally:
+            conn.close()
+
+    async def _link_identities(self, ident, main, platform='') -> bool:
+        """把 ident 关联到 main（ident 之后与 main 共用绑定/签到）"""
+        ident, main = str(ident or ''), str(main or '')
+        if not ident or not main or ident == main:
+            return False
+        conn = await self._qq_db()
+        try:
+            cur = await conn.cursor()
+            await cur.execute(
+                "INSERT INTO qq_link (ident, alias_of, platform) VALUES (%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE alias_of=VALUES(alias_of), platform=VALUES(platform)",
+                (ident, main, str(platform or '')[:16]))
+            # 绑定行也搬到主身份下（同游戏已有不同ID则保留主身份的，避免覆盖）
+            await cur.execute(
+                "UPDATE IGNORE qq_bind SET qq=%s WHERE qq=%s", (main, ident))
+            await conn.commit()
+            await cur.close()
+            return True
+        finally:
+            conn.close()
+
+    async def _unlink_identity(self, ident) -> bool:
+        conn = await self._qq_db()
+        try:
+            cur = await conn.cursor()
+            await cur.execute("DELETE FROM qq_link WHERE ident=%s", (str(ident),))
+            n = cur.rowcount
+            await conn.commit()
+            await cur.close()
+            return n > 0
+        finally:
+            conn.close()
+
+    async def _alias_of(self, ident) -> str:
+        """直接查 ident 的上级（用于展示）"""
+        try:
+            conn = await self._qq_db()
+        except Exception:
+            return ''
+        try:
+            c = await conn.cursor()
+            await c.execute("SELECT alias_of FROM qq_link WHERE ident=%s", (str(ident),))
+            r = await c.fetchone()
+            await c.close()
+            return str(r[0]) if r and r[0] else ''
+        except Exception:
+            return ''
+        finally:
+            conn.close()
+
     async def _get_bindings(self, qq) -> dict:
+        qq = await self._resolve_identity(qq)
         conn = await self._qq_db()
         try:
             cur = await conn.cursor(aiomysql.DictCursor)
@@ -2821,6 +2914,7 @@ class ZeroARKPlugin(Star):
             conn.close()
 
     async def _unbind(self, qq, game) -> bool:
+        qq = await self._resolve_identity(qq)
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
@@ -2974,7 +3068,8 @@ class ZeroARKPlugin(Star):
             hint = "；若你已在私聊绑定，请改在私聊签到（群/私聊的用户标识可能不同）" if in_group else ""
             return f"❌ 未查询到{cn}绑定，请先 /绑定 {cn} <ID>{hint}"
         day = self._today_str()
-        if await self._checkin_exists(qq, game, day):
+        main_qq = await self._resolve_identity(qq)   # 已 /关联 的话两边共用主身份
+        if await self._checkin_exists(main_qq, game, day):
             return f"ℹ️ {cn}今天已签到过，明天再来吧"
         if await self._checkin_exists_for_player(game, str(bind_row['player_id']), day):
             return (f"ℹ️ 这个{cn}游戏账号今天已经领过了（每个游戏账号每天只能领一次）\n"
@@ -2982,14 +3077,14 @@ class ZeroARKPlugin(Star):
         target = await self._pick_online_rcon_target(game)
         if not target:
             return f"❌ {cn}当前没有在线服务器，本次未加点，请稍后重试"
-        if not await self._claim_checkin(qq, game, day, points, str(target.get('name', '')),
+        if not await self._claim_checkin(main_qq, game, day, points, str(target.get('name', '')),
                                          str(bind_row['player_id'])):
             return f"ℹ️ {cn}今天已签到过，明天再来吧"
         command = cmd_tpl.format(id=bind_row['player_id'], points=points)
         out = await self._exec_addpoints(target, command)
         low = out.lower()
         if out.startswith("❌") or "unknown" in low or "not found" in low:
-            await self._revoke_checkin(qq, game, day)
+            await self._revoke_checkin(main_qq, game, day)
             logger.error(f"签到加点失败: qq={qq} game={game} cmd={command} resp={out}")
             return f"❌ {cn}加点命令执行异常（{out[:80]}），已回滚可重新签到。请检查 config.json signin.{key_prefix}_cmd 命令模板"
         logger.info(f"✅ 签到加点成功: qq={qq} game={game} +{points} server={target.get('name')} cmd={command} resp={out[:60]}")
@@ -3128,11 +3223,11 @@ class ZeroARKPlugin(Star):
                                        source='游戏内验证码', platform=str(pend.get('platform') or ''))
                 continue
 
-    async def _notify_bind_result(self, qq, text: str) -> bool:
-        """优先私聊通知；私聊失败且开启群内兜底（game_bind.dm_fallback='@'）时，
+    async def _notify_bind_result(self, qq, text: str, platform: str = '') -> bool:
+        """优先私聊通知（按绑定所在平台）；私聊失败且开启群内兜底（game_bind.dm_fallback='@'）时，
         在通知群以文本公告播报（调用方必须保证 text 不含验证码等敏感内容）"""
         try:
-            if await self._send_private_msg(qq, text):
+            if await self._send_private_msg(qq, text, platform=platform):
                 return True
         except Exception as e:
             logger.debug(f"绑定结果私聊发送异常: {e}")
@@ -3189,7 +3284,8 @@ class ZeroARKPlugin(Star):
             qq,
             f"✅ {self._game_cn(game)}游戏内{verb}：{self._mask_id(qq)} ↔ 角色「{sender}」（{pmap}），"
             f"ID {self._mask_id(pid)}（来源：{source}）\n"
-            f"现在可用 /签到 每日领取 {points} 点。{legacy_line}")
+            f"现在可用 /签到 每日领取 {points} 点。{legacy_line}",
+            platform=platform)
 
     def _gen_bind_code(self) -> str:
         now = time.time()
@@ -3236,7 +3332,8 @@ class ZeroARKPlugin(Star):
             ok = await self._send_private_msg(
                 qq,
                 f"🎫 {self._game_cn(game)} 游戏内绑定验证码：{code}\n\n{hint}\n\n"
-                f"有效期 {ttl} 秒、仅限一次，验证码只发给你本人请勿外传；若该游戏已绑过其它号，用验证码可直接换绑。")
+                f"有效期 {ttl} 秒、仅限一次，验证码只发给你本人请勿外传；若该游戏已绑过其它号，用验证码可直接换绑。",
+                platform=self._event_platform(event))
             if not ok:
                 self._pending_codes.pop(code, None)
                 yield event.plain_result("❌ 验证码私发失败：机器人无法私聊到你。请先添加机器人为好友（若机器人侧有私聊白名单/陌生人限制，请把该QQ加入白名单）后重试；验证码不会发到群里以防冒绑。")
@@ -3284,6 +3381,81 @@ class ZeroARKPlugin(Star):
             yield event.plain_result(
                 f"✅ {self._game_cn(game)}绑定成功：{self._event_platform(event) or '本平台'} ID={qq_show} → {pid_show} {extra}\n"
                 f"提示：QQ 与 KOOK 是两套身份，另一个平台需要各自再绑一次。")
+
+    async def _link_cmd(self, event):
+        """跨平台身份关联（QQ ↔ KOOK）：/关联 开码 | /关联 <码> | /关联 状态 | /关联 解除"""
+        if not self._check_whitelist(event):
+            return
+        qq = self._sender_qq(event)
+        if not qq:
+            yield event.plain_result("❌ 无法获取你的用户ID，请私聊机器人或确认适配器")
+            return
+        arg = event.message_str.strip().split(None, 1)[1].strip() if len(event.message_str.strip().split(None, 1)) > 1 else ""
+        platform = self._event_platform(event)
+        public = bool(self._event_group_id(event))
+        now = time.time()
+        self._pending_links = {c: v for c, v in (self._pending_links or {}).items()
+                               if v.get('expire', 0) > now}
+        if not arg or arg.lower() in ('help', '用法', '?'):
+            yield event.plain_result(
+                "🔗 跨平台身份关联（QQ ↔ KOOK）\n"
+                "· /关联 开码 → 生成 6 位关联码（3 分钟有效）\n"
+                "· 到另一个平台发 /关联 <关联码> → 两边共用同一份绑定与签到\n"
+                "· /关联 状态 → 查看当前关联情况\n"
+                "· /关联 解除 → 取消关联")
+            return
+        if arg in ('开码', 'code', '开'):
+            code = self._gen_bind_code()
+            self._pending_links[code] = {'qq': qq, 'platform': platform, 'expire': now + 180}
+            tip = "⚠️ 群里请勿外传，建议私聊操作。" if public else ""
+            yield event.plain_result(
+                f"🔗 关联码：{code}（3 分钟内有效、仅限一次）{tip}\n"
+                f"请到另一个平台（QQ 或 KOOK）发：/关联 {code}\n"
+                f"成功后两边共用绑定与签到；同一游戏账号每天仍然只加一次点数。")
+            return
+        if arg in ('状态', 'status'):
+            main = await self._resolve_identity(qq)
+            linked = str(main) != str(qq)
+            if linked:
+                yield event.plain_result(
+                    f"🔗 当前身份 {self._mask_id(qq)}（{platform or '未知平台'}）\n"
+                    f"已关联到主身份 {self._mask_id(main)}，两平台共用绑定与签到。")
+            else:
+                yield event.plain_result(
+                    f"🔗 当前身份 {self._mask_id(qq)}（{platform or '未知平台'}）尚未关联其它平台。\n"
+                    f"用 /关联 开码 然后在另一个平台发 /关联 <码> 即可打通。")
+            return
+        if arg in ('解除', 'unlink', '取消'):
+            ok = await self._unlink_identity(qq)
+            yield event.plain_result("✅ 已解除关联（绑定记录留在了主身份下，如需可重新绑定）"
+                                     if ok else "ℹ️ 当前身份没有关联")
+            return
+        pend = (self._pending_links or {}).get(arg)
+        if not pend or now > pend.get('expire', 0):
+            yield event.plain_result("❌ 关联码无效或已过期，请在另一个平台重新 /关联 开码")
+            return
+        if str(pend['qq']) == str(qq):
+            yield event.plain_result("ℹ️ 这是你自己的身份，请到另一个平台发这个码")
+            return
+        self._pending_links.pop(arg, None)
+        main = await self._resolve_identity(pend['qq'])
+        if not await self._link_identities(qq, main, platform=platform):
+            yield event.plain_result("❌ 关联失败，请稍后重试")
+            return
+        logger.info(f"🔗 身份关联成功: {self._mask_id(qq)}({platform}) → {self._mask_id(main)}")
+        yield event.plain_result(
+            f"✅ 关联成功：你的 {platform or '本平台'} 身份已关联到主身份 {self._mask_id(main)}。\n"
+            f"现在两个平台共用绑定与签到（以主身份的绑定为准）；同一游戏账号每天仍只加一次点数。")
+
+    @filter.command("关联")
+    async def link_cmd_cn(self, event: AstrMessageEvent):
+        async for r in self._link_cmd(event):
+            yield r
+
+    @filter.command("link")
+    async def link_cmd_en(self, event: AstrMessageEvent):
+        async for r in self._link_cmd(event):
+            yield r
 
     async def _unbind_cmd(self, event):
         if not self._check_whitelist(event):

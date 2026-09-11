@@ -2,6 +2,20 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.7.0] - 2026-09-11
+
+### 新增 / Added
+- **QQ ↔ KOOK 身份关联（`/关联`）**：一边绑定，两边通用
+  - `/关联 开码` → 生成 6 位关联码（3 分钟有效、一次性）
+  - 到另一个平台发 `/关联 <关联码>` → 两个身份连通，共用同一份绑定与签到记录
+  - `/关联 状态` 查看关联情况，`/关联 解除` 取消关联
+  - 关联后：在任一边 `/签到` 都会按主身份记账，配合 v1.6.1 的按游戏账号判重，**同一游戏账号每天仍然只加一次点数**；绑定行与签到记录都归到主身份下，绑定时如两边绑了不同账号以主身份（开码方）为准
+  - New identity linking across platforms: `/link code` → `/link <code>` on the other platform makes both share one binding + check-in record; `/link status`, `/link unlink` included
+
+### 修复 / Fixed
+- **私聊发送现在按平台走**：`_send_private_msg()` 原先固定用 QQ 官方机器人发送，KOOK 用户走「开绑」时验证码会被发到 QQ（必然失败）→ 现在按事件平台选择适配器；绑定结果通知同样带上绑定所在平台
+  - **DMs are now platform-aware**: `_send_private_msg()` used to always send through the QQ official adapter, so a KOOK user's bind-verification code was sent to QQ and always failed. The adapter is now chosen from the event platform, and bind-result notifications carry the binding's platform
+
 ## [1.6.2] - 2026-09-11
 
 ### 修复 / Fixed

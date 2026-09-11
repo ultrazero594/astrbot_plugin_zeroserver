@@ -129,3 +129,34 @@
 2. 建议至少建两个面板：`scope=group, target_type=all` 给群聊、`scope=c2c` 给单聊；
 3. 群内使用建议统一 **@机器人 + 指令**；群设置需开启“获取群内全部消息”与“机器人主动在群聊内发言”；
 4. 本机器人下绑定主键是 openid（私聊 `user_openid` / 群 `member_openid`，ZeroARK 实测两者一致）。
+
+## 六、自定义菜单（单聊底部按钮，已配置）
+
+接口：`PUT /v2/menu`（仅 C2C 全局生效；最多 10 个按钮；按钮类型 `switch` / `send_message` / `link` / `menu`(子菜单最多 5 个)）。
+
+ZeroARK 当前已配置（version 41）：
+
+```json
+{
+  "menu": {
+    "items": [
+      { "type": "send_message", "name": "帮助", "send_message": "帮助" },
+      { "type": "send_message", "name": "签到", "send_message": "签到" },
+      { "type": "send_message", "name": "在线玩家", "send_message": "在线玩家" },
+      { "type": "menu", "name": "查询", "sub_menu_items": [
+        { "type": "send_message", "name": "进化", "send_message": "进化" },
+        { "type": "send_message", "name": "飞升", "send_message": "飞升" },
+        { "type": "send_message", "name": "倍率", "send_message": "倍率" },
+        { "type": "send_message", "name": "直连", "send_message": "直连" },
+        { "type": "send_message", "name": "查服", "send_message": "查服" }
+      ] },
+      { "type": "send_message", "name": "查绑定", "send_message": "查绑定" },
+      { "type": "link", "name": "官网", "link": "https://example.com/" }
+    ]
+  }
+}
+```
+
+> 点击 `send_message` 类按钮会把文本**填入输入框**（仍需发送）；`menu` 类型为折叠子菜单；`link` 跳转浏览器。
+> 查询当前菜单：`GET /v2/menu`；覆盖修改：再次 `PUT /v2/menu`（会整体替换）。
+

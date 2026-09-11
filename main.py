@@ -242,6 +242,8 @@ DEFAULT_CONFIG = {
     # 跨平台互推：QQ 侧展示 KOOK 邀请链接、KOOK 侧展示 QQ 群号（留空则该侧不显示）
     "invite_kook": "",
     "invite_qq": "",
+    # 隐私：/在线玩家 名单里的游戏ID是否打码（默认打码，改为 false 则显示完整 ID）
+    "mask_player_ids": True,
     "rcon_targets": [],                       # 手动 RCON 目标（也可由 rcon_html_url 自动构建）
     "cache_mirror_url": "",                   # 【抓取】缓存更新检测的目录列表页
     "cache_check_interval_minutes": 10,
@@ -444,7 +446,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.5.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.6.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -748,6 +750,19 @@ class ZeroARKPlugin(Star):
     def _platform_tag(self) -> str:
         """当前优先平台标识：qq_official（openid 体系）或 qq（OneBot QQ号体系）"""
         return 'qq_official' if self._find_platform_inst('qq_official') is not None else 'qq'
+
+    def _platform_tag_for(self, event=None) -> str:
+        """绑定记录里的平台标识：优先事件来源平台（qq_official / kook / aiocqhttp），否则按适配器推断"""
+        name = self._event_platform(event) if event is not None else ''
+        return name or self._platform_tag()
+
+    @staticmethod
+    def _mask_id(value, head: int = 6, tail: int = 4) -> str:
+        """用户标识打码（公共区域展示用）：保留前 head 与后 tail 字符"""
+        s = str(value or '').strip()
+        if len(s) <= head + tail + 1:
+            return s
+        return f"{s[:head]}…{s[-tail:]}"
 
     async def _wait_platform(self, platform_name: str, purpose: str = "", timeout: float = 20.0):
         """等待指定平台适配器就绪；超时返回 None（避免后台任务无限等待）"""
@@ -1630,7 +1645,9 @@ class ZeroARKPlugin(Star):
                     if lastmap:
                         bits.append(f"最近活动：{lastmap}")
                     mark = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"[i - 1] if 1 <= i <= 20 else f"{i}."
-                    lines.append(f"  {mark} {pl.get('name')}  |  " + " | ".join(bits) + (f"  |  ID {pid}" if pid else ""))
+                    pid_show = self._mask_id(pid) if self.config.get('mask_player_ids', True) else pid
+                    lines.append(f"  {mark} {pl.get('name')}  |  " + " | ".join(bits)
+                                 + (f"  |  ID {pid_show}" if pid else ""))
             if gcount == 0:
                 lines.append("  （当前没有在线玩家）")
             if offline:
@@ -2187,27 +2204,27 @@ class ZeroARKPlugin(Star):
                 binds = await self._get_bindings(tqq)
             except Exception as e:
                 logger.error(f"代加点查询绑定失败: qq={tqq}: {e}")
-                results.append(f"❌ @{tqq}：查询绑定失败，跳过")
+                results.append(f"❌ @{self._mask_id(tqq)}：查询绑定失败，跳过")
                 continue
             row = binds.get(game)
             if not row:
-                results.append(f"⏭️ @{tqq}：未绑定{cn}，已跳过")
+                results.append(f"⏭️ @{self._mask_id(tqq)}：未绑定{cn}，已跳过")
                 continue
             pid = row['player_id']
             if not online:
-                results.append(f"❌ @{tqq}：{cn}当前无在线服务器，未加点")
+                results.append(f"❌ @{self._mask_id(tqq)}：{cn}当前无在线服务器，未加点")
                 continue
             command = cmd_tpl.format(id=pid, points=points)
             out = await self._exec_addpoints(online, command)
             low = out.lower()
             if out.startswith("❌") or "unknown" in low or "not found" in low:
                 logger.error(f"代加点失败: qq={tqq} game={game} cmd={command} resp={out}")
-                results.append(f"❌ @{tqq}：加点命令执行异常（{out[:60]}），未加点")
+                results.append(f"❌ @{self._mask_id(tqq)}：加点命令执行异常（{out[:60]}），未加点")
                 continue
             logger.info(f"✅ 群聊代加点: 由owner为 qq={tqq} game={game} +{points} server={online.get('name')}")
             verify = await self._getpoints_text(online, pid) if cfg.get('verify_with_getpoints', True) else ""
             role = f"（{row['player_name']}）" if row.get('player_name') else ""
-            results.append(f"✅ @{tqq}{role}：{cn} +{points} 已完成（{online.get('name')}）{verify}")
+            results.append(f"✅ @{self._mask_id(tqq)}{role}：{cn} +{points} 已完成（{online.get('name')}）{verify}")
         if not results:
             yield event.plain_result("⚠️ 没有可处理的目标")
             return
@@ -2253,18 +2270,21 @@ class ZeroARKPlugin(Star):
         except Exception:
             pass
         group = self._event_group_id(event)
+        masked = bool(group)   # 群/频道属公共区域：ID 打码，私聊给全量
         lines = [
             "🪪 会话标识（用于 config.json 配置）",
             f"· 平台：{platform_name or '(未知)'}",
-            f"· 你的ID（openid/QQ号）：{sender}",
+            f"· 你的ID（openid/QQ号）：{self._mask_id(sender) if masked else sender}",
             f"· 会话ID：{session_id}",
             f"· 群/频道标识：{group or '（私聊）'}",
-            f"· member_openid：{raw_member or '（无）'}",
-            f"· user_openid：{raw_user or '（无）'}",
+            f"· member_openid：{self._mask_id(raw_member) if (masked and raw_member) else (raw_member or '（无）')}",
+            f"· user_openid：{self._mask_id(raw_user) if (masked and raw_user) else (raw_user or '（无）')}",
             "",
             "对照填写：你的ID → owner_qq / owner_ids；群标识 → whitelist_groups / notify_group / admin_channels；",
             "玩家绑定主键即「你的ID」（QQ 官方机器人下为 openid，无法换成真实 QQ 号）。",
         ]
+        if masked:
+            lines += ["🔒 公共区域已对你的 ID 打码；需要完整 ID 请私聊机器人再发 /我是谁。"]
         yield event.plain_result("\n".join(lines))
 
     async def _test_push_cmd(self, event):
@@ -2325,11 +2345,12 @@ class ZeroARKPlugin(Star):
             "【查在线玩家】",
             "· /在线玩家 [进化|飞升] [地图名] → 在线人数 + 部落名（不给版本=两边都查）",
             "",
-            "【账号绑定 & 签到】",
+            "【账号绑定 & 签到】QQ 和 KOOK 都能绑；进化 / 飞升各绑各的",
             "· /绑定 进化 <SteamID64> ｜ /绑定 飞升 <EOS 32位hex> → 首次绑定",
             "· /绑定 <进化|飞升> 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>（换绑也走这个）",
             f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
             "· /查绑定 → 查看我的绑定 ｜ /解绑 <进化|飞升> → 解除绑定",
+            "· QQ 与 KOOK 是两套身份：两边都要签到，就得各绑一次（同一个人的两侧不互通）",
         ]
         if is_kook and in_group:
             lines += [
@@ -2363,6 +2384,7 @@ class ZeroARKPlugin(Star):
             "",
             "· /我是谁 → 查看自己的平台ID / 群标识（配置用）",
             "· /帮助 → 显示本帮助",
+            "· 🔒 你的聊天ID、SteamID/EOS 只在私聊完整显示，群/频道里一律打码",
         ]
         if has_onebot:
             lines += ["· 游戏公屏：qqbind <QQ号> → 未绑过时可直接绑定（OneBot 渠道）"]
@@ -2918,7 +2940,8 @@ class ZeroARKPlugin(Star):
             return f"❌ {cn}加点命令执行异常（{out[:80]}），已回滚可重新签到。请检查 config.json signin.{key_prefix}_cmd 命令模板"
         logger.info(f"✅ 签到加点成功: qq={qq} game={game} +{points} server={target.get('name')} cmd={command} resp={out[:60]}")
         verify = await self._getpoints_text(target, bind_row['player_id']) if cfg.get('verify_with_getpoints', True) else ""
-        return f"✅ {cn}签到成功：已在 {target.get('name')} 加点 +{points} 点（ID: {bind_row['player_id'][:16]}）{verify}"
+        pid_show = self._mask_id(bind_row['player_id']) if in_group else str(bind_row['player_id'])[:16]
+        return f"✅ {cn}签到成功：已在 {target.get('name')} 加点 +{points} 点（ID: {pid_show}）{verify}"
 
     async def _getpoints_text(self, target, pid) -> str:
         """用 ArkShop GetPlayerPoints 回读玩家余额，返回用于拼接的提示片段；无输出/失败返回空串"""
@@ -3047,7 +3070,8 @@ class ZeroARKPlugin(Star):
                 if not pend or pend.get('game') != game or time.time() > pend.get('expire', 0):
                     continue
                 self._pending_codes.pop(m.group(1).lower(), None)  # 一次性
-                await self._apply_bind(pend['qq'], game, pid, sender, pmap, source='游戏内验证码')
+                await self._apply_bind(pend['qq'], game, pid, sender, pmap,
+                                       source='游戏内验证码', platform=str(pend.get('platform') or ''))
                 continue
 
     async def _notify_bind_result(self, qq, text: str) -> bool:
@@ -3061,7 +3085,7 @@ class ZeroARKPlugin(Star):
         gb = self.config.get('game_bind') or {}
         if str(gb.get('dm_fallback', '@')).lower() in ('@', 'on', 'true', '1'):
             try:
-                if await self._broadcast(f"📢 [QQ:{qq}] {text}") > 0:
+                if await self._broadcast(f"📢 [{self._mask_id(qq)}] {text}") > 0:
                     logger.info(f"绑定结果私聊失败，已在广播目标公告给 QQ {qq}")
                     return True
             except Exception as e:
@@ -3085,15 +3109,15 @@ class ZeroARKPlugin(Star):
                 f"🔒 检测到游戏内玩家「{sender}」用你的QQ在{self._game_cn(game)}尝试绑定新账号，但你已绑定 {str(cur_row.get('player_id'))[:16]}…。已忽略（防冒绑）。\n如需换绑：QQ里发 /绑定 {self._game_cn(game)} 开绑 走验证码流程，或先 /解绑 {self._game_cn(game)}。")
             logger.info(f"游戏内绑定被拒(已绑不同号): qq={qq} game={game} new_pid={pid}")
             return
-        await self._apply_bind(qq, game, pid, sender, pmap, source='游戏公屏QQ号')
+        await self._apply_bind(qq, game, pid, sender, pmap, source='游戏公屏QQ号', platform='aiocqhttp')
 
-    async def _apply_bind(self, qq, game, pid, sender, pmap, source=''):
+    async def _apply_bind(self, qq, game, pid, sender, pmap, source='', platform=''):
         """写入绑定并私聊通知（验证码流程允许直接换绑）"""
         try:
             existing = (await self._get_bindings(qq)).get(game)
             await self._ensure_qq_tables()
             migrated = await self._claim_legacy_binding(qq, game, pid)
-            await self._bind_upsert(qq, game, pid, sender, pmap)
+            await self._bind_upsert(qq, game, pid, sender, pmap, platform=platform)
         except Exception as e:
             logger.error(f"游戏内绑定写入失败: qq={qq} game={game} pid={pid}: {e}")
             return
@@ -3109,7 +3133,8 @@ class ZeroARKPlugin(Star):
                        if migrated else "")
         await self._notify_bind_result(
             qq,
-            f"✅ {self._game_cn(game)}游戏内{verb}：QQ={qq} ↔ 角色「{sender}」（{pmap}），ID {pid}（来源：{source}）\n"
+            f"✅ {self._game_cn(game)}游戏内{verb}：{self._mask_id(qq)} ↔ 角色「{sender}」（{pmap}），"
+            f"ID {self._mask_id(pid)}（来源：{source}）\n"
             f"现在可用 /签到 每日领取 {points} 点。{legacy_line}")
 
     def _gen_bind_code(self) -> str:
@@ -3151,7 +3176,8 @@ class ZeroARKPlugin(Star):
             if len(self._pending_codes) >= 100:
                 self._pending_codes = {c: v for c, v in self._pending_codes.items()
                                        if v.get('expire', 0) > time.time()}
-            self._pending_codes[code] = {'qq': qq, 'game': game, 'expire': time.time() + ttl}
+            self._pending_codes[code] = {'qq': qq, 'game': game, 'expire': time.time() + ttl,
+                                         'platform': self._platform_tag_for(event)}
             hint = f"在游戏（{self._game_cn(game)}）公屏输入：zsbind {code}"
             ok = await self._send_private_msg(
                 qq,
@@ -3182,7 +3208,7 @@ class ZeroARKPlugin(Star):
             # 已绑定且不是同一个游戏账号 → 必须走验证码换绑（防冒绑/误覆盖）
             logger.info(f"QQ侧绑定被拒(已绑不同号): qq={qq} game={game} old={cur_pid[:16]} new={pid[:16]}")
             yield event.plain_result(
-                f"🔒 你已经绑定过{self._game_cn(game)}（ID {cur_pid[:16]}…），换绑需要验证码：\n"
+                f"🔒 你已经绑定过{self._game_cn(game)}（ID {self._mask_id(cur_pid)}），换绑需要验证码：\n"
                 f"· /绑定 {self._game_cn(game)} 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>\n"
                 f"· 或先 /解绑 {self._game_cn(game)}，再重新绑定")
             return
@@ -3190,15 +3216,20 @@ class ZeroARKPlugin(Star):
         pname = info[0] if info else ''
         pmap = info[1] if info else ''
         try:
-            await self._bind_upsert(qq, game, pid, pname, pmap)
+            await self._bind_upsert(qq, game, pid, pname, pmap, platform=self._platform_tag_for(event))
         except Exception as e:
             yield event.plain_result(f"❌ 绑定写入失败: {e}")
             return
         extra = f"（角色：{pname} @ {pmap}）" if pname else "（⚠️ 该ID暂未在ZeroARK聊天记录中出现，请确认ID正确）"
+        public = bool(self._event_group_id(event))   # 群里展示一律打码
+        qq_show = self._mask_id(qq) if public else qq
+        pid_show = self._mask_id(pid) if public else pid
         if existing:
-            yield event.plain_result(f"ℹ️ {self._game_cn(game)}已绑定同一账号（ID {pid}），信息已刷新 {extra}")
+            yield event.plain_result(f"ℹ️ {self._game_cn(game)}已绑定同一账号（ID {pid_show}），信息已刷新 {extra}")
         else:
-            yield event.plain_result(f"✅ {self._game_cn(game)}绑定成功：QQ={qq} → {pid} {extra}")
+            yield event.plain_result(
+                f"✅ {self._game_cn(game)}绑定成功：{self._event_platform(event) or '本平台'} ID={qq_show} → {pid_show} {extra}\n"
+                f"提示：QQ 与 KOOK 是两套身份，另一个平台需要各自再绑一次。")
 
     async def _unbind_cmd(self, event):
         if not self._check_whitelist(event):
@@ -3220,7 +3251,10 @@ class ZeroARKPlugin(Star):
         except Exception as e:
             yield event.plain_result(f"❌ 解绑失败: {e}")
             return
-        yield event.plain_result(f"✅ 已解绑{self._game_cn(game)}（QQ={qq}）" if ok else f"ℹ️ 你未绑定{self._game_cn(game)}")
+        public = bool(self._event_group_id(event))
+        yield event.plain_result(
+            f"✅ 已解绑{self._game_cn(game)}（{self._mask_id(qq) if public else qq}）" if ok
+            else f"ℹ️ 你未绑定{self._game_cn(game)}")
 
     async def _mybind_cmd(self, event):
         if not self._check_whitelist(event):
@@ -3238,12 +3272,16 @@ class ZeroARKPlugin(Star):
             yield event.plain_result("ℹ️ 你还没有绑定任何游戏。\n用 /绑定 进化 <SteamID64> 或 /绑定 飞升 <EOS32位hex> 绑定"
                                      + LEGACY_BIND_HINT)
             return
-        lines = [f"📋 QQ={qq} 的绑定："]
+        public = bool(self._event_group_id(event))   # 公共区域打码，私聊给完整 ID
+        lines = [f"📋 {'你的' if public else ''}绑定（{self._mask_id(qq) if public else qq}）："]
         for game in ("ASE", "ASA"):
             if game in binds:
                 b = binds[game]
-                lines.append(f"  {self._game_cn(game)}：{b['player_id']}"
+                pid_show = self._mask_id(b['player_id']) if public else b['player_id']
+                lines.append(f"  {self._game_cn(game)}：{pid_show}"
                              + (f"（角色 {b['player_name']} @ {b['last_map']}）" if b.get('player_name') else ""))
+        if public:
+            lines.append("🔒 公共区域已打码；完整 ID 请私聊机器人再发 /查绑定。")
         yield event.plain_result("\n".join(lines))
 
     async def _signin_cmd(self, event):

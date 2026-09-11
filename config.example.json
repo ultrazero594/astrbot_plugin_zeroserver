@@ -22,6 +22,7 @@
   "bridge_enabled": false,
   "invite_kook": "",
   "invite_qq": "",
+  "mask_player_ids": true,
   "rcon_targets": [],
   "cache_mirror_url": "",
   "cache_check_interval_minutes": 10,

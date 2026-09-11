@@ -170,6 +170,7 @@ astrbot_plugin_zeroserver/
 | `kook_forward_prefix` | `💬 [KOOK]` | KOOK 频道消息转进游戏时的前缀 |
 | `broadcast_targets` | `[{platform,id,label}]` | 主动消息目标列表：跨服聊天转发、缓存更新通知、绑定结果公告、`/测试推送` 都发到这里。`platform` 支持 `qq_official` / `kook` / `aiocqhttp`，可同时配多个实现双平台广播；留空则回退到 `notify_group`。**只有列表里的群/频道会把消息转发进游戏** |
 | `bridge_enabled` | `true/false` | 群间互通：广播目标之间的消息互相同步（如 QQ群 ↔ KOOK 频道），转发副本带 `🔀` 标记不会被二次转发 |
+| `mask_player_ids` | `true/false` | 隐私：`/在线玩家` 名单里的游戏ID是否打码（默认打码；排查时可设 `false` 看完整 ID）。群/频道里其它命令的 ID 一律自动打码，私聊显示完整值 |
 | `bind_db` | `{host,port,user,password,database}` | 绑定/签到记录库（默认库名 `qq`）。需要建表权限（也可由插件自动建表） |
 
 `db_sources` 示例（每游戏一套库或一个库、注意 `id` 命名）：

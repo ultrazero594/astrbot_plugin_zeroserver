@@ -171,6 +171,7 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 | `kook_forward_prefix` | Prefix used when relaying KOOK channel messages into the game |
 | `broadcast_targets` | `[{platform,id,label}]` — proactive-message targets (chat relay, cache alerts, bind results, `/testpush`). `platform` may be `qq_official` / `kook` / `aiocqhttp`; list several to broadcast to multiple platforms. Falls back to `notify_group` when empty. **Only groups/channels listed here relay messages into the game** |
 | `bridge_enabled` | `true/false` — mirror messages between broadcast targets (e.g. QQ group ↔ KOOK channel); mirrored copies carry a `🔀` marker and are never re-relayed |
+| `mask_player_ids` | `true/false` — mask game IDs in the `/在线玩家` list (default `true`; set `false` for full IDs when troubleshooting). Other commands always mask IDs in groups/channels and show full values in DMs |
 | `bind_db` | `{host, port, user, password, database}` for bindings/check-ins (default database `qq`) |
 
 Example `db_sources`:

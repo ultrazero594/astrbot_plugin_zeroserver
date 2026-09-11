@@ -2,6 +2,24 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.6.0] - 2026-09-11
+
+### 新增 / Added
+- **绑定支持 QQ 与 KOOK 双平台**：绑定记录新增按来源平台写入 `platform`（`qq_official` / `kook` / `aiocqhttp`）。验证码流程会把「开绑」时的平台一并存进待验证码记录，游戏内 `zsbind` 完成后按原平台入库，签到/查询行为不变
+  - **Bindings work on both QQ and KOOK**: the binding row now records its source platform. The verification-code flow remembers which platform issued the code and stores it when the in-game `zsbind` completes
+- `/帮助` 绑定段明确写出：QQ 和 KOOK 都能绑、进化与飞升各绑各的、两侧身份不互通，需要各绑一次
+  - `/help` now states: both QQ and KOOK can bind, ASE and ASA are bound separately, and the two platforms are independent identities
+
+### 隐私 / Privacy
+- **公共区域一律打码**：群/频道里 `/我是谁`、`/查绑定`、`/解绑`、`/签到`、`/绑定`、`/代加点` 输出中的用户 ID 与游戏 ID 全部打码（保留前 6 后 4）；私聊仍然显示完整值，便于自查
+  - **Masked in public channels**: user IDs and game IDs are masked (first 6 / last 4) in `/whoami`, `/mybind`, `/unbind`, `/signin`, `/bind` and `/atpoints` when used in a group/channel; DMs still show the full values
+- 绑定结果私聊失败时的群内兜底公告，前缀由完整 ID 改为打码 ID
+  - The group fallback announcement for bind results now uses a masked ID prefix
+- **`/在线玩家` 名单里的游戏ID默认打码**：新增 `mask_player_ids`（默认 `true`），想恢复完整 ID（如排查用）设为 `false`
+  - **Game IDs in the `/在线玩家` list are masked by default**: new `mask_player_ids` option (default `true`); set it to `false` to show full IDs for troubleshooting
+- `/我是谁` 在公共区域会提示「需要完整 ID 请私聊机器人」
+  - `/whoami` in a public channel now points users to a DM for the full ID
+
 ## [1.5.1] - 2026-09-11
 
 ### 优化 / Changed

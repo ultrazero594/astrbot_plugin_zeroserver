@@ -244,6 +244,8 @@ DEFAULT_CONFIG = {
     "invite_qq": "",
     # 是否在"所有回复"底部统一附带互推入口行（关闭则只在 /帮助 显示）
     "invite_on_reply": True,
+    # QQ 开放平台申请到「消息按钮模板」后填模板 id（填了就用模板发送按钮，否则用内联按钮实验）
+    "qq_keyboard_template_id": "",
     # 隐私：/在线玩家 名单里的游戏ID是否打码（默认打码，改为 false 则显示完整 ID）
     "mask_player_ids": True,
     "rcon_targets": [],                       # 手动 RCON 目标（也可由 rcon_html_url 自动构建）
@@ -455,7 +457,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.11.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.11.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2482,7 +2484,12 @@ class ZeroARKPlugin(Star):
         raw = getattr(getattr(event, 'message_obj', None), 'raw_message', None)
         msg_id = str(getattr(raw, 'id', '') or '') or None
         kb = self._kb_payload(buttons)
-        if variant == 2:
+        tpl = str(self.config.get('qq_keyboard_template_id') or '').strip()
+        if tpl:
+            # 平台审核通过的「消息按钮模板」：直接用模板 id 发送
+            kwargs = {"group_openid": str(group_openid), "msg_type": 0,
+                      "content": content, "keyboard": {"id": tpl}}
+        elif variant == 2:
             kwargs = {"group_openid": str(group_openid), "msg_type": 2,
                       "markdown": {"content": content}, "keyboard": kb}
         else:

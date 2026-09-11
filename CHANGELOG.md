@@ -2,6 +2,22 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.11.2] - 2026-09-11
+
+### 新增 / Added
+- 新增配置 `qq_keyboard_template_id`：QQ 开放平台**「消息按钮模板」审核通过后**填入模板 id，插件会自动改用 `keyboard={"id": "<模板id>"}` 发送。平台开通能力后**只需填一个配置**，无需改代码
+  - New `qq_keyboard_template_id`: once the open platform approves the "message button template", fill in its id and the plugin automatically sends `keyboard={"id": ...}`
+
+### 说明 / Notes
+- 实测确认：内联 `keyboard` 字段会被 QQ 平台**静默忽略**（API 返回成功、手机与 PC 客户端都不渲染按钮）；官方要求先申请「Markdown 消息模板 + 消息按钮模板」并审核
+  - Confirmed by testing: inline `keyboard` payloads are silently ignored by QQ (API succeeds, but neither mobile nor desktop renders buttons). An approved button template is required
+
+## [1.11.1] - 2026-09-11
+
+### 变更 / Changed
+- `/测试按钮` 支持指定变体：`/测试按钮`（1=文本+按钮）、`/测试按钮 2`（markdown+按钮）、`/测试按钮 3`（不带 msg_id 的主动消息+按钮）、`/测试按钮 all`（三个一起发），便于平台开通能力后快速定位可用组合
+  - `/testkb` now accepts a variant argument (1 text+buttons, 2 markdown+buttons, 3 proactive without msg_id, `all`)
+
 ## [1.11.0] - 2026-09-11
 
 ### 新增 / Added

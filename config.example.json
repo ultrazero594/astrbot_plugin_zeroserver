@@ -23,6 +23,7 @@
   "invite_kook": "https://kook.vip/xxxx",
   "invite_qq": "123456789",
   "invite_on_reply": true,
+  "qq_keyboard_template_id": "",
   "mask_player_ids": true,
   "rcon_targets": [],
   "cache_mirror_url": "",

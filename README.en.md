@@ -145,6 +145,10 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 | `notify_group` | `123456789` | Notification group: announcements, chat relay target, update alerts |
 | `whitelist_groups` | `[123456789, 987654321]` | Groups allowed to use commands; `[]` = allow all |
 | `owner_qq` | `123456789` | Owner QQ: powers `/rcon`, `/加点`, `/代加点`, owner help |
+| `owner_ids` | `["201xxxxxxx"]` | Extra owner IDs (cross-platform: QQ openid / KOOK user id); merged with `owner_qq` |
+| `admin_channels` | `["4861xxxxxxxxxxxx"]` | Inside these groups/channels the owner also sees the full `/help` (admin section); empty = DMs only |
+| `invite_kook` | `https://kook.vip/xxxx` | KOOK community invite shown at the bottom of `/help` on QQ (empty = hidden) |
+| `invite_qq` | `123456789` | QQ group number shown at the bottom of `/help` on KOOK (empty = hidden) |
 | `update_notify_qq` | `123456789` | QQ notified privately about cache updates |
 
 ### Scraped data feeds 【SCRAPE】

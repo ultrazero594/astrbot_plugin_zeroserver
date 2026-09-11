@@ -446,7 +446,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.7.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.7.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1159,19 +1159,6 @@ class ZeroARKPlugin(Star):
                 return result.strip() if result else "(无输出)"
         except Exception as e:
             return f"❌ 错误: {e}"
-
-    async def _execute_rcon_command(self, command: str) -> str:
-        targets = self.rcon_targets
-        if not targets:
-            return "❌ 没有可用的 RCON 目标"
-        loop = asyncio.get_running_loop()
-        results = []
-        for t in targets:
-            host, port = t.get('host'), t.get('port')
-            if host and port:
-                out = await loop.run_in_executor(None, self._execute_rcon_command_sync, host, port, command)
-                results.append(f"【{t.get('name', '未知')}】\n{out}")
-        return "\n\n".join(results)
 
     def _format_arkstatus(self, s: dict) -> dict:
         # 注意：ARK Status API 返回 max_players（带下划线），非 maxplayers
@@ -1901,13 +1888,11 @@ class ZeroARKPlugin(Star):
         return {str(x).strip() for x in raw if str(x).strip()}
 
     def _check_whitelist(self, event: AstrMessageEvent) -> bool:
-        """白名单检查：主人（owner_qq）任何场景放行；私聊放行；群聊按白名单"""
+        """白名单检查：主人（owner_qq/owner_ids）任何场景放行；私聊放行；群聊按白名单"""
         # 主人在任何场景（含私聊）都可使用全部指令
         if self._is_owner(event):
             return True
 
-        if hasattr(event, "session_id") and "kook" in event.session_id.lower():
-            return True
         whitelist = self.config.get('whitelist_groups', [])
         if not whitelist:
             return True
@@ -2864,6 +2849,11 @@ class ZeroARKPlugin(Star):
             # 绑定行也搬到主身份下（同游戏已有不同ID则保留主身份的，避免覆盖）
             await cur.execute(
                 "UPDATE IGNORE qq_bind SET qq=%s WHERE qq=%s", (main, ident))
+            await cur.execute("DELETE FROM qq_bind WHERE qq=%s", (ident,))
+            # 签到记录同样迁移（(qq,game,day) 冲突时以主身份那行为准）
+            await cur.execute(
+                "UPDATE IGNORE qq_checkin SET qq=%s WHERE qq=%s", (main, ident))
+            await cur.execute("DELETE FROM qq_checkin WHERE qq=%s", (ident,))
             await conn.commit()
             await cur.close()
             return True
@@ -2879,23 +2869,6 @@ class ZeroARKPlugin(Star):
             await conn.commit()
             await cur.close()
             return n > 0
-        finally:
-            conn.close()
-
-    async def _alias_of(self, ident) -> str:
-        """直接查 ident 的上级（用于展示）"""
-        try:
-            conn = await self._qq_db()
-        except Exception:
-            return ''
-        try:
-            c = await conn.cursor()
-            await c.execute("SELECT alias_of FROM qq_link WHERE ident=%s", (str(ident),))
-            r = await c.fetchone()
-            await c.close()
-            return str(r[0]) if r and r[0] else ''
-        except Exception:
-            return ''
         finally:
             conn.close()
 
@@ -3407,11 +3380,18 @@ class ZeroARKPlugin(Star):
         if arg in ('开码', 'code', '开'):
             code = self._gen_bind_code()
             self._pending_links[code] = {'qq': qq, 'platform': platform, 'expire': now + 180}
-            tip = "⚠️ 群里请勿外传，建议私聊操作。" if public else ""
-            yield event.plain_result(
-                f"🔗 关联码：{code}（3 分钟内有效、仅限一次）{tip}\n"
-                f"请到另一个平台（QQ 或 KOOK）发：/关联 {code}\n"
-                f"成功后两边共用绑定与签到；同一游戏账号每天仍然只加一次点数。")
+            text = (f"🔗 关联码：{code}（3 分钟内有效、仅一次）\n"
+                    f"请到另一个平台（QQ 或 KOOK）发：/关联 {code}\n"
+                    f"成功后两边共用绑定与签到；同一游戏账号每天仍然只加一次点数。")
+            if public:
+                # 公共区域：优先私聊发码，避免被他人拿去关联
+                if await self._send_private_msg(qq, text, platform=platform):
+                    yield event.plain_result("🔗 关联码已私聊发给你，请到另一个平台发：/关联 <关联码>")
+                    return
+                yield event.plain_result("⚠️ 私聊发码失败（可能是陌生人限制/未加好友），已直接发在这里：\n"
+                                         "（请勿外传，3 分钟内用完即失效）\n\n" + text)
+                return
+            yield event.plain_result(text)
             return
         if arg in ('状态', 'status'):
             main = await self._resolve_identity(qq)

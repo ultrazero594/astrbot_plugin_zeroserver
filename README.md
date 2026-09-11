@@ -144,6 +144,10 @@ astrbot_plugin_zeroserver/
 | `notify_group` | `123456789` | 通知群号：签到之外的公告、跨服聊天转发目标群、更新提醒都发这里 |
 | `whitelist_groups` | `[123456789, 987654321]` | 允许使用指令的群白名单；留空 `[]`=不限制 |
 | `owner_qq` | `123456789` | 服主 QQ：`/rcon`、`/加点`、`/代加点`、Owner 完整帮助 等管理能力 |
+| `owner_ids` | `["201xxxxxxx"]` | 额外主人 ID 列表（跨平台：QQ openid / KOOK 用户ID 都可），与 `owner_qq` 合并生效 |
+| `admin_channels` | `["4861xxxxxxxxxxxx"]` | 这些群/频道里，主人发 `/帮助` 也显示完整版（含【管理员】段）；留空则只有私聊显示 |
+| `invite_kook` | `https://kook.vip/xxxx` | 在 QQ 侧 `/帮助` 底部展示的 KOOK 社区邀请（留空不显示） |
+| `invite_qq` | `123456789` | 在 KOOK 侧 `/帮助` 底部展示的 QQ 群号（留空不显示） |
 | `update_notify_qq` | `123456789` | 缓存更新时私聊通知的 QQ |
 
 ### 数据抓取（【抓取】区域 —— 本地可运行需正确填写）

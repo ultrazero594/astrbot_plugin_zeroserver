@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.7.1] - 2026-09-11
+
+### 优化 / Changed
+- **代码体检（静态审查）后的清理**：
+  - 删除死代码：`_alias_of()`（定义后从未调用）、`_check_whitelist()` 里那段 `if "kook" in event.session_id` 判断（KOOK 的 session_id 是纯数字频道ID，永远不会命中）
+  - `/关联 开码` 在群/频道里改为**优先私聊发码**，私聊失败才在本会话显示并加警告，避免关联码被旁人截走
+  - `_link_identities()` 补齐：关联时把别名下的 `qq_checkin` 签到记录一并搬到主身份（`UPDATE IGNORE` + 清理残留），避免两边各自留下当天的签到行
+  - README 中英补充 `owner_ids` / `admin_channels` / `invite_kook` / `invite_qq` 四个配置项说明
+- 审查结论：无 TODO/未实现标记；40 个命令处理器与别名均正常注册；`self.config` 读取的键都有 `.get` 兜底；`_check_updates` 等"看似未被调用"的方法实际是通过 `scheduler.add_job(self._check_updates, …)` 与 `run_in_executor(None, self._xxx_sync, …)` 以函数对象形式引用的，不是死代码
+
 ## [1.7.0] - 2026-09-11
 
 ### 新增 / Added

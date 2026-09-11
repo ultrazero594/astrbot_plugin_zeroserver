@@ -237,6 +237,9 @@ DEFAULT_CONFIG = {
     "broadcast_targets": [],
     # 群间互通：把某个目标群/频道的消息同步到其它目标（QQ群 ↔ KOOK 频道），带 🔀 标记防循环
     "bridge_enabled": False,
+    # 跨平台互推：QQ 侧展示 KOOK 邀请链接、KOOK 侧展示 QQ 群号（留空则该侧不显示）
+    "invite_kook": "",
+    "invite_qq": "",
     "rcon_targets": [],                       # 手动 RCON 目标（也可由 rcon_html_url 自动构建）
     "cache_mirror_url": "",                   # 【抓取】缓存更新检测的目录列表页
     "cache_check_interval_minutes": 10,
@@ -439,7 +442,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.4.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.4.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -782,6 +785,22 @@ class ZeroARKPlugin(Star):
                 return t['label']
         return {'qq_official': 'QQ群', 'aiocqhttp': 'QQ群', 'kook': 'KOOK'}.get(
             platform_name or '', platform_name or '群')
+
+    @staticmethod
+    def _event_platform(event) -> str:
+        """事件来源平台名（qq_official / kook / aiocqhttp …），取不到返回空串"""
+        try:
+            return str(event.get_platform_name() or '')
+        except Exception:
+            return ''
+
+    def _invite_line(self, platform_name: str = "") -> str:
+        """按平台互推对方社区：QQ 侧显示 KOOK 邀请，KOOK 侧显示 QQ 群号（未配置则返回空串）"""
+        kook = str(self.config.get('invite_kook') or '').strip()
+        qq = str(self.config.get('invite_qq') or '').strip()
+        if (platform_name or '').strip() == 'kook':
+            return f"💬 玩家 QQ 群：{qq}" if qq else ""
+        return f"🔗 KOOK 社区：{kook}" if kook else ""
 
     async def _send_group_text(self, platform: str, group_id, message: str) -> bool:
         """按平台名主动发送群/频道消息；platform 为空或 aiocqhttp 时走旧的 QQ 发送链"""
@@ -2253,7 +2272,7 @@ class ZeroARKPlugin(Star):
         async for r in self._whoami_cmd(event):
             yield r
 
-    def _help_lines(self, is_owner_private: bool) -> list:
+    def _help_lines(self, is_owner_private: bool, platform_name: str = "") -> list:
         """构建帮助文本（分组清晰；Owner 私聊额外显示管理指令）"""
         sc = self._signin_cfg()
         ase_pts = sc.get('ase_points', 50)
@@ -2310,6 +2329,9 @@ class ZeroARKPlugin(Star):
             lines = [ln for ln in lines if 'OneBot' not in ln and 'qqbind' not in ln]
             lines = [ln.replace('绑定主键是当前渠道的用户ID（QQ 官方机器人下为 openid）',
                                 '绑定主键是 openid（QQ 官方机器人无法获取真实 QQ 号）') for ln in lines]
+        invite = self._invite_line(platform_name)
+        if invite:
+            lines += ["", invite]
         return lines
 
     @filter.command("help")
@@ -2328,7 +2350,7 @@ class ZeroARKPlugin(Star):
             except Exception:
                 pass
         is_owner_private = bool(sender_id) and str(sender_id) == owner_qq and not self._event_group_id(event)
-        yield event.plain_result("\n".join(self._help_lines(is_owner_private)) + self.footer)
+        yield event.plain_result("\n".join(self._help_lines(is_owner_private, self._event_platform(event))) + self.footer)
 
     @filter.command("帮助")
     async def help_command_cn(self, event: AstrMessageEvent):
@@ -3314,10 +3336,7 @@ class ZeroARKPlugin(Star):
         self._last_umo = event.unified_msg_origin
         if str(group_id) == str(self.config.get('notify_group')):
             self._notify_umo = event.unified_msg_origin
-        try:
-            platform_name = str(event.get_platform_name() or '')
-        except Exception:
-            platform_name = ''
+        platform_name = self._event_platform(event)
         sender_name = event.get_sender_name() or "用户"
         src_key = self._target_key(platform_name, group_id)
         targets = self._broadcast_targets()

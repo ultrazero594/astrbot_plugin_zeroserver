@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.4.1] - 2026-09-11
+
+### 新增 / Added
+- **跨平台互推**：新增 `invite_kook` / `invite_qq` 配置。`/帮助` 会按当前平台自动附上「对方社区」入口——QQ 侧显示 KOOK 邀请链接，KOOK 侧显示 QQ 群号（留空则不显示）
+  - **Cross-platform invitation**: new `invite_kook` / `invite_qq` config. `/help` appends the other community's entry depending on the current platform (KOOK invite on QQ, QQ group number on KOOK); empty values are simply omitted
+
+### 优化 / Changed
+- 平台名解析统一走 `_event_platform()`，`_help_lines()` 增加 `platform_name` 参数以便按平台定制内容
+  - Platform name resolution is centralised in `_event_platform()`; `_help_lines()` now takes `platform_name`
+
 ## [1.4.0] - 2026-09-11
 
 ### 新增 / Added

@@ -18,6 +18,8 @@
     { "platform": "kook", "id": "你的KOOK频道ID", "label": "KOOK公共频道" }
   ],
   "bridge_enabled": false,
+  "invite_kook": "",
+  "invite_qq": "",
   "rcon_targets": [],
   "cache_mirror_url": "",
   "cache_check_interval_minutes": 10,

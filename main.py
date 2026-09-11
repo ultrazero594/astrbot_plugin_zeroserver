@@ -469,7 +469,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.15.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.15.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1043,10 +1043,10 @@ class ZeroARKPlugin(Star):
                 session_id=str(session_id),
             )
             await platform_inst.send_by_session(session, MessageChain().message(message))
-            logger.info(f"✅ QQ 官方机器人已发送（{message_type}:{str(session_id)[:12]}...）")
+            logger.info(f"✅ 主动消息已发送（{platform_id or '?'} {message_type}:{str(session_id)[:12]}...）")
             return True
         except Exception as e:
-            logger.error(f"❌ QQ 官方机器人发送失败（{message_type}:{str(session_id)[:12]}...）: {type(e).__name__}: {e}")
+            logger.error(f"❌ 主动消息发送失败（{message_type}:{str(session_id)[:12]}...）: {type(e).__name__}: {e}")
             return False
 
     @staticmethod
@@ -3757,7 +3757,9 @@ class ZeroARKPlugin(Star):
                     "· 请改用直接绑定（无需私聊）：/绑定 飞升 <EOS 32位hex>　或　/绑定 进化 <SteamID64>\n"
                     "· 换绑：先 /解绑 飞升，再重新绑定")
                 return
-            yield event.plain_result(f"🎫 {self._game_cn(game)} 开绑成功，验证码已私发给你（{ttl} 秒有效，请勿外传）。\n下一步：{hint}")
+            yield event.plain_result(
+                f"🎫 {self._game_cn(game)} 开绑成功，验证码已私发给你（{ttl} 秒有效，请勿外传）。\n"
+                f"下一步：在游戏（{self._game_cn(game)}）公屏输入 zsbind <验证码>（验证码看你我私聊）")
             return
         pid = parts[2].strip()
         if not self._is_valid_id(game, pid):

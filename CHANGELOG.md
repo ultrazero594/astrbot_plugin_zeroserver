@@ -2,6 +2,13 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.15.1] - 2026-09-12
+
+### 修复 / Fixed
+- **验证码泄露到公共区域（严重）**：`/绑定 <游戏> 开绑` 私聊发码成功后，群/频道里那条「开绑成功」的回复把下一步提示 `下一步：在游戏公屏输入：zsbind <验证码>` 一并打印了 —— 而该提示字符串里**带着真实验证码**，等于把码贴进公共频道（QQ 群同样受影响）。现在公共回复固定写成 `zsbind <验证码>（验证码看你我私聊）`，`hint` 只在私聊文本里使用
+  - **Security fix**: the public "binding started" reply leaked the actual verification code (it printed the `zsbind <code>` hint). The code is now only ever sent in the private message; public replies show `zsbind <验证码>`
+- 主动消息的日志文案改为平台中立（原来无论哪个平台都打印「QQ 官方机器人已发送」，排查时误导）
+
 ## [1.15.0] - 2026-09-12
 
 ### 新增 / Added

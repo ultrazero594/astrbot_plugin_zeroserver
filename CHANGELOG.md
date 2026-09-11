@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.2.1] - 2026-09-11
+
+### 修复 / Fixed
+- 修复 `/help` 处理器重复注册：`@filter.command("help")` 曾被误标到内部函数 `_help_lines` 上
+  - Fixed duplicated help handler registration (`@filter.command("help")` was mis-applied to the internal `_help_lines`)
+
+### 优化 / Changed
+- `/help` 按当前平台自适应：未启用 OneBot（aiocqhttp）时，帮助中不再出现 `qqbind` 与 "OneBot" 字样，绑定主键文案改为 openid；重新启用 OneBot 时该行自动恢复
+  - `/help` is now platform-aware: when OneBot is not configured, `qqbind` / "OneBot" lines are omitted and the binding note says openid; the line comes back automatically if OneBot is enabled again
+
 ## [1.2.0] - 2026-09-11
 
 ### 新增 / Added
@@ -107,6 +117,7 @@ An AstrBot plugin that queries ARK servers, binds QQ ↔ game accounts and runs 
 - 文档：`README.md`（中文）/ `README.en.md`（English）
 
 [1.0.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.1
+[1.2.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.2.1
 [1.2.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.1.0
 [1.0.3]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.3

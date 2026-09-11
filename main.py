@@ -428,7 +428,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.2.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.2.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2174,6 +2174,7 @@ class ZeroARKPlugin(Star):
         sc = self._signin_cfg()
         ase_pts = sc.get('ase_points', 50)
         asa_pts = sc.get('asa_points', 50)
+        has_onebot = self._find_platform_inst('aiocqhttp') is not None
         lines = [
             "📖 ZeroARK 指令帮助（进化=ASE，飞升=ASA）",
             "",
@@ -2219,6 +2220,11 @@ class ZeroARKPlugin(Star):
             "· /帮助 或 /help → 显示本帮助",
             "· 群聊里请先 @机器人 再发指令；绑定主键是当前渠道的用户ID（QQ 官方机器人下为 openid）",
         ]
+        if not has_onebot:
+            # 未启用 OneBot 时，帮助里不出现 qqbind / OneBot 字样
+            lines = [ln for ln in lines if 'OneBot' not in ln and 'qqbind' not in ln]
+            lines = [ln.replace('绑定主键是当前渠道的用户ID（QQ 官方机器人下为 openid）',
+                                '绑定主键是 openid（QQ 官方机器人无法获取真实 QQ 号）') for ln in lines]
         return lines
 
     @filter.command("help")

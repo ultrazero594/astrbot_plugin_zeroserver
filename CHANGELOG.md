@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.19.2] - 2026-09-12
+
+### 修复 / Fixed
+- **CCA 标签里的中文会变乱码**（用户报"游戏里面怎么不是跨服kook"）：实测 CCA 的 `Map` 标签字段**只吃 ASCII** —— 写「跨服-KOOK」时游戏里显示成 `[|σ¤¥η∧-KOOK]:`（UTF-8 字节被按单字节解码）。改为**纯 ASCII 标签**：默认 `cca_map_label = "CrossServer-QQ"`、`cca_map_label_kook = "CrossServer-KOOK"`（显示为 `[CrossServer-KOOK]: 名字: 内容`）；并新增 `_cca_label_safe()` 强制只保留可打印 ASCII，即使配置里写了中文也会被清掉而不是打成乱码（`_cca_labels()` 同步用它，保证防回声比较与写库取值一致）
+  - **Fix: non-ASCII CCA map labels become mojibake** — CCA's `Map` field is single-byte-decoded, so 「跨服-KOOK」 rendered as `[|σ¤¥η∧-KOOK]`. Labels are now ASCII-only (`CrossServer-QQ` / `CrossServer-KOOK`) with a `_cca_label_safe()` guard
+
 ## [1.19.1] - 2026-09-12
 
 ### 变更 / Changed

@@ -245,8 +245,8 @@ DEFAULT_CONFIG = {
     # QQ/KOOK → 游戏公屏 的发送通道：rcon（默认，任何环境可用）| cca（写 CrossChatAscended 的表，
     # 借用它的跨服通道与格式；只有装了 CCA 的服会显示）
     "game_send_via": "rcon",
-    "cca_map_label": "跨服-QQ群",     # 写 CCA 时 Map 字段用的标签（也用它识别"自己写的行"防回声）
-    "cca_map_label_kook": "跨服-KOOK",
+    "cca_map_label": "CrossServer-QQ",     # 写 CCA 时 Map 字段用的标签（**必须纯 ASCII**，中文会被 CCA 解成乱码）
+    "cca_map_label_kook": "CrossServer-KOOK",
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -487,7 +487,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1161,14 +1161,24 @@ class ZeroARKPlugin(Star):
         return re.sub(r'[ \t]{2,}', ' ', s).strip()
 
     # ======================== CCA（CrossChatAscended）通道 ========================
+    @staticmethod
+    def _cca_label_safe(text: str) -> str:
+        """CCA 的 Map 标签字段只吃 ASCII —— 实测写中文（如「跨服-KOOK」）会被它按单字节解码成乱码
+        （游戏里显示 [|σ¤¥η∧-KOOK]），所以标签统一只保留可打印 ASCII，非 ASCII 直接丢掉。"""
+        s = str(text or '')
+        s = ''.join(ch for ch in s if '\x20' <= ch <= '\x7e')
+        return s.strip()
+
     def _cca_label_for(self, platform_name: str) -> str:
         key = 'cca_map_label_kook' if (platform_name or '') == 'kook' else 'cca_map_label'
-        return str(self.config.get(key) or ('KOOK' if key.endswith('kook') else 'QQ群'))
+        return self._cca_label_safe(
+            self.config.get(key) or ('KOOK' if key.endswith('kook') else 'QQ-Group'))
 
     def _cca_labels(self) -> set:
-        """我们自己写进 CCA 表时用的 Map 标签集合（用于在跨服转发时跳过这些行，防回声）"""
-        return {str(self.config.get('cca_map_label') or 'QQ群'),
-                str(self.config.get('cca_map_label_kook') or 'KOOK')}
+        """我们自己写进 CCA 表时用的 Map 标签集合（用于在跨服转发时跳过这些行，防回声）
+        注意要与真正写库时的取值完全一致，所以同样过一遍 _cca_label_safe()。"""
+        return {self._cca_label_safe(self.config.get('cca_map_label') or 'QQ-Group'),
+                self._cca_label_safe(self.config.get('cca_map_label_kook') or 'KOOK')}
 
     async def _cca_send(self, platform_name: str, sender: str, message: str) -> bool:
         """把消息写进 CrossChatAscended 的 cross_chat 表：各服装有 CCA 就会自动打印（带 CCA 的格式/颜色）"""
@@ -1178,6 +1188,8 @@ class ZeroARKPlugin(Star):
             logger.warning("⚠️ 未配置 asa_chat / ase_chat 数据源，无法走 CCA 通道")
             return False
         label = self._game_safe(self._cca_label_for(platform_name))[:50]
+        if not label:
+            label = 'CrossServer'
         sender = self._game_safe(sender)[:100]
         message = self._game_safe(message)[:250]
         ok_any = False

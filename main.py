@@ -478,7 +478,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1086,7 +1086,7 @@ class ZeroARKPlugin(Star):
                         nick = str(getattr(info, 'nickname', '') or getattr(info, 'username', '') or '')
                     if value and uid:
                         logger.info(f"🖱️ KOOK 按钮点击: {value!r} ← {str(uid)[:8]}…")
-                        asyncio.create_task(self._inject_kook_button_command(adapter_self, uid, nick, value))
+                        asyncio.create_task(self._run_kook_button_command(adapter_self, uid, nick, value))
                         return
             except Exception as e:
                 logger.debug(f"KOOK 按钮补丁处理异常: {e}")
@@ -1105,33 +1105,89 @@ class ZeroARKPlugin(Star):
             return str(body.get(key) or '')
         return str(getattr(body, key, '') or '')
 
-    async def _inject_kook_button_command(self, adapter_inst, user_id, nickname, value: str):
-        """把按钮 value 当作「该用户私聊发来的一条消息」注入 AstrBot 管道，从而复用全部指令逻辑
-        （私聊语义：不要求唤醒前缀，指令结果私聊回点击者，公共区域不打码）"""
+    # 按钮 value → 内部处理函数（不走管道，直接执行 + 私聊回结果）
+    KOOK_BUTTON_COMMANDS = {
+        '在线玩家': '_players_cmd', '在线': '_players_cmd',
+        '签到': '_signin_cmd', '查绑定': '_mybind_cmd', '菜单': '_menu_cmd',
+    }
+
+    @staticmethod
+    def _result_text(res) -> str:
+        """把指令处理器产出的 MessageEventResult 抽成纯文本"""
+        try:
+            t = res.get_plain_text()
+            if t:
+                return str(t)
+        except Exception:
+            pass
+        try:
+            parts = []
+            for comp in (getattr(res, 'chain', None) or []):
+                txt = getattr(comp, 'text', None)
+                if txt:
+                    parts.append(str(txt))
+            return "\n".join(parts)
+        except Exception:
+            return ""
+
+    async def _run_kook_button_command(self, adapter_inst, user_id, nickname, value: str):
+        """KOOK 卡片按钮点击：把 value 当指令执行，结果**私聊**回点击者。
+        不注入 AstrBot 管道 —— 一是避免 LLM 也插一句，二是伪造的 msg_id 会被 KOOK 当"引用不存在"拒收。"""
+        text = str(value).strip()
+        if text.startswith('/'):
+            text = text[1:]
+        text = text.strip()
+        if not text:
+            return
+        name = text.split()[0]
         try:
             from astrbot.api.platform import AstrBotMessage, MessageMember, MessageType
             from astrbot.api.message_components import Plain
+            abm = AstrBotMessage()
+            abm.type = MessageType.FRIEND_MESSAGE
+            abm.self_id = str(getattr(getattr(adapter_inst, 'client', None), 'bot_id', '') or '')
+            abm.session_id = str(user_id)
+            abm.group_id = ''
+            abm.sender = MessageMember(user_id=str(user_id), nickname=nickname or str(user_id))
+            abm.message_id = ''
+            abm.message = [Plain(text=text)]
+            abm.message_str = text
+            abm.raw_message = {"from": "kook_button_click", "value": value}
+            ev = adapter_inst.create_event(abm)
+            ev.is_wake = True
+            ev.is_at_or_wake_command = True
         except Exception as e:
-            logger.error(f"❌ KOOK 按钮补丁：导入失败 {e}")
+            logger.error(f"❌ KOOK 按钮补丁：构造事件失败 {type(e).__name__}: {e}")
             return
-        text = str(value).strip().lstrip('/').strip()
-        if not text:
-            return
-        abm = AstrBotMessage()
-        abm.type = MessageType.FRIEND_MESSAGE
-        abm.self_id = str(getattr(getattr(adapter_inst, 'client', None), 'bot_id', '') or '')
-        abm.session_id = str(user_id)
-        abm.group_id = ''
-        abm.sender = MessageMember(user_id=str(user_id), nickname=nickname or str(user_id))
-        abm.message_id = f"btnclick-{int(time.time())}"
-        abm.message = [Plain(text=text)]
-        abm.message_str = text
-        abm.raw_message = {"from": "kook_button_click", "value": value}
+        outs = []
         try:
-            await adapter_inst.handle_msg(abm)
-            logger.info(f"🖱️ KOOK 按钮指令已注入: {text!r}（user={str(user_id)[:8]}…）")
+            if name == '状态':
+                outs.append(self._status_summary())
+            elif name == '直连':
+                async for r in self.direct_command(ev):
+                    outs.append(self._result_text(r))
+            elif name == '倍率':
+                async for r in self.rate_command(ev):
+                    outs.append(self._result_text(r))
+            elif name in ('我的ID', '我的id', 'myid'):
+                async for r in self._myid_cmd(ev):
+                    outs.append(self._result_text(r))
+            elif name in ('帮助', 'help'):
+                group = self._event_group_id(ev)
+                outs.append("\n".join(self._help_lines(self._is_owner(ev), self._event_platform(ev),
+                                                       bool(group), '')))
+            elif name in self.KOOK_BUTTON_COMMANDS:
+                handler = getattr(self, self.KOOK_BUTTON_COMMANDS[name])
+                async for r in handler(ev):
+                    outs.append(self._result_text(r))
+            else:
+                outs.append(f"ℹ️ 这个按钮我还没接上：{value}\n直接发 /指令 就行，例如 /帮助")
         except Exception as e:
-            logger.error(f"❌ KOOK 按钮指令注入失败: {type(e).__name__}: {e}")
+            logger.error(f"❌ KOOK 按钮指令执行失败: {type(e).__name__}: {e}")
+            outs.append(f"❌ 执行 {value} 出错：{type(e).__name__}")
+        body = "\n\n".join([o for o in outs if o]).strip() or "（没有输出）"
+        ok = await self._send_private_msg(user_id, body, platform='kook')
+        logger.info(f"🖱️ KOOK 按钮 {value!r} → 私聊回执{'成功' if ok else '失败'}")
 
     async def _official_send(self, platform_inst, message_type: str, session_id: str, message: str) -> bool:
         """通过 QQ 官方机器人 send_by_session 主动发送（群=group_openid，私聊=user_openid）"""

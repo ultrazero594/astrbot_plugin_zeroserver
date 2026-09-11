@@ -2,6 +2,15 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.18.1] - 2026-09-12
+
+### 修复 / Fixed
+- **KOOK 按钮点了没回执**（v1.18.0 的补丁已经能收到点击并执行指令，但结果发不出去）：
+  - 原因一：注入管道时伪造了 `message_id`（`btnclick-<时间戳>`），AstrBot 据此生成**引用回复**，KOOK 直接拒收：`40000 引用不存在或者你没有权限操作`
+  - 原因二：注入管道会让 AstrBot 的 **LLM 也对同一条消息回一句**（一按出两条回复）
+  - 现在改为**不注入管道**：用 `adapter_inst.create_event()` 造一个"点击者私聊"事件对象，直接调用插件内部的指令处理器（在线玩家 / 状态 / 签到 / 查绑定 / 菜单 / 帮助 / 直连 / 倍率 / 我的ID），把结果**私聊**发回点击者 —— 既没有伪造 msg_id 的引用问题，也不会触发 LLM
+- **KOOK card button clicks now actually reply**: v1.18.0's patch received the click and ran the command, but the reply was rejected by KOOK (`引用不存在或者你没有权限操作`) because the injected message carried a fake `message_id` → AstrBot built a quote-reply. It also caused the LLM to answer the same message (two replies per click). The handler no longer injects into the pipeline: it builds a synthetic private-chat event, calls the plugin's own command handlers, and DMs the result to the clicker
+
 ## [1.18.0] - 2026-09-12
 
 ### 新增 / Added

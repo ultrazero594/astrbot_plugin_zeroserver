@@ -246,6 +246,7 @@ DEFAULT_CONFIG = {
     "mask_player_ids": True,
     "rcon_targets": [],                       # 手动 RCON 目标（也可由 rcon_html_url 自动构建）
     "cache_mirror_url": "",                   # 【抓取】缓存更新检测的目录列表页
+    "cache_mirror_urls": [],                  # 多个镜像目录（优先于上面的单值；留空则用单值）
     "cache_check_interval_minutes": 10,
     "update_notify_qq": 0,                    # 缓存更新私聊通知对象（QQ号）
     "servers_html_url": "",                   # 【抓取】直连地址列表页（Servers.html）
@@ -271,6 +272,12 @@ DEFAULT_CONFIG = {
         "dm_fallback": "@"
     },
     "llm_trigger_keywords": ["报告", "总结", "解释", "帮忙", "ZeroARK", "指令", "绑定", "签到", "怎么", "使用", "倍率", "查服", "直连"],
+    # 插件自带 LLM（默认关闭；开启需填 llm_api_key，否则不会调用）
+    "llm_enabled": False,
+    "llm_model": "glm-4-flash",
+    "llm_api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "llm_api_key": "",
+    "llm_system_prompt": "",
     "llm_enabled": False,                     # 智谱 GLM / OpenAI 兼容接口，可自行替换
     "llm_api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     "llm_model": "GLM-4.7-Flash",
@@ -446,7 +453,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.7.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.8.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -818,6 +825,12 @@ class ZeroARKPlugin(Star):
                 return t['label']
         return {'qq_official': 'QQ群', 'aiocqhttp': 'QQ群', 'kook': 'KOOK'}.get(
             platform_name or '', platform_name or '群')
+
+    @staticmethod
+    def _platform_tag_cn(tag: str) -> str:
+        """绑定记录里的平台标识 → 中文（/查绑定 展示用）"""
+        return {'qq_official': 'QQ官方', 'aiocqhttp': 'QQ(OneBot)', 'kook': 'KOOK',
+                'legacy': '旧版待重绑', 'auto': '自动关联', '': '未知'}.get(str(tag or ''), str(tag))
 
     @staticmethod
     def _event_platform(event) -> str:
@@ -1564,6 +1577,15 @@ class ZeroARKPlugin(Star):
                 f"SELECT Sender, TribeName, Map, timestamp FROM `{tbl}` WHERE `{col}`=%s ORDER BY Id DESC LIMIT 1",
                 (pid,))
             row = await cur.fetchone()
+            # 最近一条可能没写部落名（旧行/空值）→ 再往前找最近一条有部落名的
+            if row and not (row[1] or '').strip():
+                await cur.execute(
+                    f"SELECT Sender, TribeName, Map, timestamp FROM `{tbl}` "
+                    f"WHERE `{col}`=%s AND TribeName IS NOT NULL AND TribeName<>'' ORDER BY Id DESC LIMIT 1",
+                    (pid,))
+                row2 = await cur.fetchone()
+                if row2:
+                    row = (row[0], row2[1], row[2] or row2[2], row[3])
             await cur.close()
             conn.close()
             if row:
@@ -1650,7 +1672,7 @@ class ZeroARKPlugin(Star):
                     info = await self._lookup_tribe(g, pid, cache) or {}
                     tribe = info.get('tribe') or ''
                     lastmap = info.get('map') or ''
-                    bits = [f"部落：{tribe}" if tribe else "部落：未知（近期无聊天记录）"]
+                    bits = [f"部落：{tribe}" if tribe else "部落：未知"]
                     if lastmap:
                         bits.append(f"最近活动：{lastmap}")
                     mark = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"[i - 1] if 1 <= i <= 20 else f"{i}."
@@ -2357,7 +2379,7 @@ class ZeroARKPlugin(Star):
             "· /绑定 <进化|飞升> 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>（换绑也走这个）",
             f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
             "· /查绑定 → 查看我的绑定 ｜ /解绑 <进化|飞升> → 解除绑定",
-            "· /关联 → QQ ↔ KOOK 身份打通（一边绑定，两边都能签到）",
+            "· /关联 → QQ ↔ KOOK 身份打通（同一游戏账号会自动关联，也可 /关联 开码 手动打通）",
             "· QQ 与 KOOK 是两套身份：两边都要签到，就得各绑一次（同一个人的两侧不互通）",
         ]
         if is_kook and in_group:
@@ -2387,6 +2409,7 @@ class ZeroARKPlugin(Star):
                 "· /加点 <进化|飞升> <ID> <点数> → 加 ArkShop 点数",
                 "· /代加点 <进化|飞升> <点数> @群友… → 给已绑定群友加点",
                 "· /测试推送 → 测试主动消息通道 ｜ /更新地址 → 刷新直连地址缓存",
+                "· /关联 列表 → 查看身份关联 ｜ /关联 解除 @某人 → 强制解除他人关联",
             ]
         lines += [
             "",
@@ -2872,6 +2895,49 @@ class ZeroARKPlugin(Star):
         finally:
             conn.close()
 
+    async def _list_links(self, limit: int = 30):
+        """列出身份关联（别名 → 主身份）"""
+        conn = await self._qq_db()
+        try:
+            cur = await conn.cursor()
+            await cur.execute("SELECT ident, alias_of, platform FROM qq_link ORDER BY created_at DESC LIMIT %s",
+                              (int(limit),))
+            rows = await cur.fetchall()
+            await cur.close()
+            return [(str(r[0]), str(r[1]), str(r[2] or '')) for r in rows]
+        finally:
+            conn.close()
+
+    async def _auto_link_by_binding(self, qq, game, pid) -> str:
+        """同一游戏账号已绑在另一个身份上时，自动把当前身份关联过去（返回主身份，无则空串）"""
+        pid = str(pid or '').strip()
+        if not pid:
+            return ''
+        me = await self._resolve_identity(qq)
+        try:
+            conn = await self._qq_db()
+        except Exception:
+            return ''
+        try:
+            cur = await conn.cursor()
+            await cur.execute(
+                "SELECT qq FROM qq_bind WHERE game=%s AND player_id=%s AND qq<>%s LIMIT 5",
+                (game, pid, me))
+            rows = await cur.fetchall()
+            await cur.close()
+        except Exception:
+            return ''
+        finally:
+            conn.close()
+        for r in rows or []:
+            main = await self._resolve_identity(str(r[0]))
+            if not main or main == me:
+                continue
+            if await self._link_identities(me, main, platform='auto'):
+                logger.info(f"🔗 同一游戏账号自动关联: {self._mask_id(me)} → {self._mask_id(main)} ({game})")
+                return main
+        return ''
+
     async def _get_bindings(self, qq) -> dict:
         qq = await self._resolve_identity(qq)
         conn = await self._qq_db()
@@ -3345,15 +3411,18 @@ class ZeroARKPlugin(Star):
             yield event.plain_result(f"❌ 绑定写入失败: {e}")
             return
         extra = f"（角色：{pname} @ {pmap}）" if pname else "（⚠️ 该ID暂未在ZeroARK聊天记录中出现，请确认ID正确）"
+        auto_main = await self._auto_link_by_binding(qq, game, pid)
+        auto_line = (f"\n🔗 检测到同一游戏账号已绑定在另一个平台，已自动关联（两边共用绑定与签到）"
+                     if auto_main else "")
         public = bool(self._event_group_id(event))   # 群里展示一律打码
         qq_show = self._mask_id(qq) if public else qq
         pid_show = self._mask_id(pid) if public else pid
         if existing:
-            yield event.plain_result(f"ℹ️ {self._game_cn(game)}已绑定同一账号（ID {pid_show}），信息已刷新 {extra}")
+            yield event.plain_result(f"ℹ️ {self._game_cn(game)}已绑定同一账号（ID {pid_show}），信息已刷新 {extra}{auto_line}")
         else:
             yield event.plain_result(
                 f"✅ {self._game_cn(game)}绑定成功：{self._event_platform(event) or '本平台'} ID={qq_show} → {pid_show} {extra}\n"
-                f"提示：QQ 与 KOOK 是两套身份，另一个平台需要各自再绑一次。")
+                f"提示：QQ 与 KOOK 是两套身份，另一边可发 /关联 开码 打通（同一游戏账号会自动关联）。{auto_line}")
 
     async def _link_cmd(self, event):
         """跨平台身份关联（QQ ↔ KOOK）：/关联 开码 | /关联 <码> | /关联 状态 | /关联 解除"""
@@ -3375,7 +3444,7 @@ class ZeroARKPlugin(Star):
                 "· /关联 开码 → 生成 6 位关联码（3 分钟有效）\n"
                 "· 到另一个平台发 /关联 <关联码> → 两边共用同一份绑定与签到\n"
                 "· /关联 状态 → 查看当前关联情况\n"
-                "· /关联 解除 → 取消关联")
+                "· /关联 解除 → 取消关联｜主人：/关联 列表、/关联 解除 @某人")
             return
         if arg in ('开码', 'code', '开'):
             code = self._gen_bind_code()
@@ -3405,10 +3474,36 @@ class ZeroARKPlugin(Star):
                     f"🔗 当前身份 {self._mask_id(qq)}（{platform or '未知平台'}）尚未关联其它平台。\n"
                     f"用 /关联 开码 然后在另一个平台发 /关联 <码> 即可打通。")
             return
-        if arg in ('解除', 'unlink', '取消'):
+        if arg in ('解除', 'unlink', '取消') or arg.startswith('解除'):
+            targets = self._extract_at_qqs(event)
+            if targets:
+                # 主人可解除他人的关联：/关联 解除 @某人
+                if not self._is_owner(event):
+                    yield event.plain_result("ℹ️ 仅主人可解除他人的关联")
+                    return
+                done = []
+                for t in targets:
+                    if await self._unlink_identity(t):
+                        done.append(self._mask_id(t))
+                yield event.plain_result(("✅ 已解除关联：" + "、".join(done)) if done else "ℹ️ 这些身份没有关联")
+                return
             ok = await self._unlink_identity(qq)
             yield event.plain_result("✅ 已解除关联（绑定记录留在了主身份下，如需可重新绑定）"
                                      if ok else "ℹ️ 当前身份没有关联")
+            return
+        if arg in ('列表', 'list'):
+            if not self._is_owner(event):
+                yield event.plain_result("ℹ️ 仅主人可查看关联列表")
+                return
+            links = await self._list_links()
+            if not links:
+                yield event.plain_result("📋 目前没有任何身份关联")
+                return
+            out = [f"📋 身份关联（别名 → 主身份，共 {len(links)} 条）："]
+            for a, m, plat in links:
+                out.append(f"· {self._mask_id(a)}（{plat or '?'}） → {self._mask_id(m)}")
+            out.append("用 /关联 解除 @某人 可强制解除")
+            yield event.plain_result("\n".join(out))
             return
         pend = (self._pending_links or {}).get(arg)
         if not pend or now > pend.get('expire', 0):
@@ -3484,7 +3579,8 @@ class ZeroARKPlugin(Star):
             if game in binds:
                 b = binds[game]
                 pid_show = self._mask_id(b['player_id']) if public else b['player_id']
-                lines.append(f"  {self._game_cn(game)}：{pid_show}"
+                plat_cn = self._platform_tag_cn(b.get('platform'))
+                lines.append(f"  {self._game_cn(game)}：{pid_show}（{plat_cn}）"
                              + (f"（角色 {b['player_name']} @ {b['last_map']}）" if b.get('player_name') else ""))
         if public:
             lines.append("🔒 公共区域已打码；完整 ID 请私聊机器人再发 /查绑定。")

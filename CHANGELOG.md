@@ -2,6 +2,20 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.8.0] - 2026-09-11
+
+### 新增 / Added
+- **同一游戏账号自动关联**：绑定/换绑时如果发现**同一个游戏账号已绑在另一个平台身份**上，自动把两边关联起来（无需手动 `/关联`），并在回复里提示「已自动关联（两边共用绑定与签到）」。配合按游戏账号判重，同账号每天仍只加一次点数
+  - **Automatic linking by game account**: when a newly bound game account already exists under another platform identity, both are linked automatically (no manual `/link` needed)
+- **身份关联管理（Owner）**：`/关联 列表` 查看全部关联（ID 打码），`/关联 解除 @某人` 强制解除他人关联
+  - Owner tools: `/link list` and `/link unlink @user`
+- 部落名查询增强：最近一条聊天记录没写部落名时，继续回溯该玩家**最近一条带部落名**的记录，命中率更高；显示文案简化为 `部落：未知`
+  - Tribe lookup now falls back to the player's most recent record that actually carries a tribe name; the placeholder is shortened to `部落：未知`
+
+### 变更 / Changed
+- 生产副本的 `DEFAULT_CONFIG` 补齐 `servers_html_url` / `rcon_html_url` / `dynamic_ini_url` / `cache_mirror_urls` / `llm_*`，这些项现在会出现在 AstrBot 插件配置页里（代码仍保留常量兜底）
+  - The production `DEFAULT_CONFIG` now lists the fetch URLs, `cache_mirror_urls` and the `llm_*` keys so they show up in AstrBot's plugin config page (constants remain as fallbacks)
+
 ## [1.7.1] - 2026-09-11
 
 ### 优化 / Changed

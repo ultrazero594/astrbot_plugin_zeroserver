@@ -446,7 +446,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.6.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.6.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2638,11 +2638,13 @@ class ZeroARKPlugin(Star):
                     CREATE TABLE IF NOT EXISTS qq_checkin (
                         qq VARCHAR(64) NOT NULL,
                         game VARCHAR(8) NOT NULL,
+                        player_id VARCHAR(64) NOT NULL DEFAULT '',
                         day CHAR(10) NOT NULL,
                         points INT NOT NULL DEFAULT 0,
                         server_name VARCHAR(100) NOT NULL DEFAULT '',
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (qq, game, day)
+                        PRIMARY KEY (qq, game, day),
+                        KEY idx_game_player_day (game, player_id, day)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
 
@@ -2662,6 +2664,22 @@ class ZeroARKPlugin(Star):
             if not await _col_type('qq_bind', 'platform'):
                 await cur.execute("ALTER TABLE qq_bind ADD COLUMN platform VARCHAR(16) NOT NULL DEFAULT '' AFTER qq")
                 logger.info("🔧 qq_bind 已补充 platform 列")
+            # qq_checkin 增加 player_id：同一个游戏账号每天只能领一次，防止 QQ/KOOK 两边各签一次刷双倍
+            if not await _col_type('qq_checkin', 'player_id'):
+                await cur.execute("ALTER TABLE qq_checkin ADD COLUMN player_id VARCHAR(64) NOT NULL DEFAULT '' AFTER game")
+                logger.info("🔧 qq_checkin 已补充 player_id 列（按游戏账号防重复签到）")
+            await cur.execute(
+                "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() "
+                "AND TABLE_NAME='qq_checkin' AND INDEX_NAME='idx_game_player_day'")
+            if not (await cur.fetchone())[0]:
+                await cur.execute("ALTER TABLE qq_checkin ADD KEY idx_game_player_day (game, player_id, day)")
+                logger.info("🔧 qq_checkin 已补充索引 idx_game_player_day")
+            # 回填历史记录的 player_id（按同样的 qq+game 从 qq_bind 取）
+            await cur.execute(
+                "UPDATE qq_checkin c JOIN qq_bind b ON c.qq=b.qq AND c.game=b.game "
+                "SET c.player_id=b.player_id WHERE (c.player_id IS NULL OR c.player_id='') AND b.player_id<>''")
+            if cur.rowcount:
+                logger.info(f"🔧 已回填 {cur.rowcount} 条签到的 player_id")
             # 仅当运行在 QQ 官方机器人下：把 OneBot 时代的旧绑定（纯数字 QQ 号主键）标记为 legacy。
             # 这些主键在 openid 体系下永远匹配不到，玩家需重新走一次"开绑 + 游戏内 zsbind"，
             # 届时按游戏ID自动接回原账号（见 _claim_legacy_binding）。
@@ -2811,21 +2829,38 @@ class ZeroARKPlugin(Star):
         finally:
             conn.close()
 
-    async def _claim_checkin(self, qq, game, day, points, server_name) -> bool:
+    async def _claim_checkin(self, qq, game, day, points, server_name, player_id='') -> bool:
         """先占坑（(qq,game,day) 唯一键防并发/防重复）；返回 False 表示今天已签过或冲突"""
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
             try:
                 await cur.execute(
-                    "INSERT INTO qq_checkin (qq, game, day, points, server_name) VALUES (%s,%s,%s,%s,%s)",
-                    (str(qq), game, day, int(points), (server_name or '')[:100]))
+                    "INSERT INTO qq_checkin (qq, game, player_id, day, points, server_name) "
+                    "VALUES (%s,%s,%s,%s,%s,%s)",
+                    (str(qq), game, str(player_id or '')[:64], day, int(points), (server_name or '')[:100]))
             except Exception:
                 await conn.rollback()
                 return False
             await conn.commit()
             await cur.close()
             return True
+        finally:
+            conn.close()
+
+    async def _checkin_exists_for_player(self, game, player_id, day) -> bool:
+        """同一个游戏账号当天是否已被领过（防 QQ / KOOK 两个身份各签一次、同账号双倍点数）"""
+        pid = str(player_id or '').strip()
+        if not pid:
+            return False
+        conn = await self._qq_db()
+        try:
+            cur = await conn.cursor()
+            await cur.execute("SELECT COUNT(*) FROM qq_checkin WHERE game=%s AND player_id=%s AND day=%s",
+                              (game, pid, day))
+            n = (await cur.fetchone())[0]
+            await cur.close()
+            return bool(n)
         finally:
             conn.close()
 
@@ -2926,10 +2961,14 @@ class ZeroARKPlugin(Star):
         day = self._today_str()
         if await self._checkin_exists(qq, game, day):
             return f"ℹ️ {cn}今天已签到过，明天再来吧"
+        if await self._checkin_exists_for_player(game, str(bind_row['player_id']), day):
+            return (f"ℹ️ 这个{cn}游戏账号今天已经领过了（每个游戏账号每天只能领一次）\n"
+                    f"可能你在另一个平台或另一个聊天身份已经签过了，同一账号不会重复加点。")
         target = await self._pick_online_rcon_target(game)
         if not target:
             return f"❌ {cn}当前没有在线服务器，本次未加点，请稍后重试"
-        if not await self._claim_checkin(qq, game, day, points, str(target.get('name', ''))):
+        if not await self._claim_checkin(qq, game, day, points, str(target.get('name', '')),
+                                         str(bind_row['player_id'])):
             return f"ℹ️ {cn}今天已签到过，明天再来吧"
         command = cmd_tpl.format(id=bind_row['player_id'], points=points)
         out = await self._exec_addpoints(target, command)

@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.6.1] - 2026-09-11
+
+### 修复 / Fixed
+- **同一游戏账号每天只能领一次**：签到唯一性原先只按 `(用户身份, 游戏, 日期)`——同一个人 QQ 和 KOOK 各绑一次同一游戏账号，就能**一天领两次（+100）**。现在 `qq_checkin` 增加 `player_id` 列 + `(game, player_id, day)` 索引，签到前先按**游戏账号**判重，第二次会回复「这个 XX 游戏账号今天已经领过了，同一账号不会重复加点」
+  - **One check-in per game account per day**: uniqueness was keyed on `(identity, game, date)`, so binding the same game account on both QQ and KOOK let one account collect **twice a day (+100)**. `qq_checkin` now stores `player_id` with a `(game, player_id, day)` index and the check-in is de-duplicated by **game account**
+- 启动时自动补 `player_id` 列与该索引，并按 `qq_bind` 回填历史签到的 `player_id`（幂等）
+  - The `player_id` column + index are added automatically on startup, and historical rows are back-filled from `qq_bind` (idempotent)
+- 说明：同一个人的 QQ 与 KOOK 身份仍可各自绑定（两个平台都能用），但如果绑的是**同一个游戏账号**，只有第一次签到能加点
+  - Note: QQ and KOOK identities can each hold their own binding, but when they point at the **same game account** only the first check-in of the day pays out
+
 ## [1.6.0] - 2026-09-11
 
 ### 新增 / Added

@@ -434,7 +434,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.3.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.3.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2199,6 +2199,7 @@ class ZeroARKPlugin(Star):
             "【账号绑定与签到】",
             "· /绑定 进化 <SteamID64> → 绑定进化账号（17位数字，7656119开头）",
             "· /绑定 飞升 <EOS ID> → 绑定飞升账号（32位hex）",
+            "  （已绑定过其它账号时不能直接覆盖：换绑须走下面的“开绑”验证码流程，或先 /解绑）",
             "· /绑定 <进化|飞升> 开绑 → 生成绑定验证码，再回游戏公屏发 zsbind <验证码>",
             "· /解绑 <进化|飞升> → 解除该游戏绑定",
             "· /查绑定 或 /mybind → 查看我的绑定",
@@ -3040,6 +3041,20 @@ class ZeroARKPlugin(Star):
         if game == 'ASA':
             pid = pid.lower()
         await self._safe_ensure_qq_tables()
+        try:
+            existing = (await self._get_bindings(qq)).get(game)
+        except Exception as e:
+            yield event.plain_result(f"❌ 查询绑定失败: {e}")
+            return
+        cur_pid = str((existing or {}).get('player_id') or '')
+        if existing and cur_pid.lower() != pid.lower():
+            # 已绑定且不是同一个游戏账号 → 必须走验证码换绑（防冒绑/误覆盖）
+            logger.info(f"QQ侧绑定被拒(已绑不同号): qq={qq} game={game} old={cur_pid[:16]} new={pid[:16]}")
+            yield event.plain_result(
+                f"🔒 你已经绑定过{self._game_cn(game)}（ID {cur_pid[:16]}…），换绑需要验证码：\n"
+                f"· /绑定 {self._game_cn(game)} 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>\n"
+                f"· 或先 /解绑 {self._game_cn(game)}，再重新绑定")
+            return
         info = await self._lookup_chat_player(game, pid)
         pname = info[0] if info else ''
         pmap = info[1] if info else ''
@@ -3049,7 +3064,10 @@ class ZeroARKPlugin(Star):
             yield event.plain_result(f"❌ 绑定写入失败: {e}")
             return
         extra = f"（角色：{pname} @ {pmap}）" if pname else "（⚠️ 该ID暂未在ZeroARK聊天记录中出现，请确认ID正确）"
-        yield event.plain_result(f"✅ {self._game_cn(game)}绑定成功：QQ={qq} → {pid} {extra}")
+        if existing:
+            yield event.plain_result(f"ℹ️ {self._game_cn(game)}已绑定同一账号（ID {pid}），信息已刷新 {extra}")
+        else:
+            yield event.plain_result(f"✅ {self._game_cn(game)}绑定成功：QQ={qq} → {pid} {extra}")
 
     async def _unbind_cmd(self, event):
         if not self._check_whitelist(event):

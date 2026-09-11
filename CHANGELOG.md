@@ -2,6 +2,18 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.3.1] - 2026-09-11
+
+### 修复 / Fixed
+- 修复 `/绑定 <进化|飞升> <ID>` 可绕过换绑验证的漏洞：已绑定过其它账号时会被直接覆盖，违反"已绑后需验证码才能换"的设计。现在改为**拒绝**并提示走「开绑 → 游戏公屏 `zsbind <验证码>`」验证码流程（或先 `/解绑` 再重新绑定）
+  - Fixed a re-bind bypass in `/bind <game> <id>`: an existing binding could be overwritten with no verification. It is now rejected with a hint to use the in-game verification-code flow (or `/unbind` first)
+- 绑定的是同一个账号时，回复由「绑定成功」改为「已绑定同一账号（ID …），信息已刷新」，避免误报为一次新绑定
+  - Re-binding the same account now reports "already bound, info refreshed" instead of "bind success"
+
+### 文档 / Docs
+- `/帮助` 中 `/绑定` 两条说明后补充一行：已绑定过其它账号时不能直接覆盖，换绑须走开绑验证码流程或先 `/解绑`
+  - Help now states that an existing binding cannot be overwritten directly
+
 ## [1.3.0] - 2026-09-11
 
 ### 新增 / Added

@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.18.2] - 2026-09-12
+
+### 变更 / Changed
+- **KOOK 按钮的结果改回点击发生的频道**（v1.18.1 曾一律私聊，用户反馈"这又不是验证码"）：从点击事件的 `extra.body` 里取 `target_id`（频道 id）与 `channel_type`，**在频道里点的就回频道、在私聊里点的才回私聊**；频道场景下合成的也是"频道消息"事件，所以 ID 照常打码、逻辑与用户手打指令完全一致。回频道失败时才退回私聊
+  - **KOOK button results now go back to the channel where the click happened** (v1.18.1 sent everything to DM, which the user rightly rejected — results aren't secrets). The handler reads `target_id`/`channel_type` from the click payload: channel clicks reply in the channel (with the usual ID masking, since the synthetic event is a channel message), DM clicks reply in DM; falls back to DM only if the channel send fails
+
 ## [1.18.1] - 2026-09-12
 
 ### 修复 / Fixed

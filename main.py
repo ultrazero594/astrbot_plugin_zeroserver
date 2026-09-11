@@ -478,7 +478,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1086,7 +1086,11 @@ class ZeroARKPlugin(Star):
                         nick = str(getattr(info, 'nickname', '') or getattr(info, 'username', '') or '')
                     if value and uid:
                         logger.info(f"🖱️ KOOK 按钮点击: {value!r} ← {str(uid)[:8]}…")
-                        asyncio.create_task(self._run_kook_button_command(adapter_self, uid, nick, value))
+                        # 回到点击发生的那个频道（点击在频道 → 回频道；点在私聊 → 回私聊）
+                        dest = self._kook_body_field(body, 'target_id')
+                        ctype = self._kook_body_field(body, 'channel_type')
+                        asyncio.create_task(self._run_kook_button_command(
+                            adapter_self, uid, nick, value, dest, ctype))
                         return
             except Exception as e:
                 logger.debug(f"KOOK 按钮补丁处理异常: {e}")
@@ -1130,8 +1134,9 @@ class ZeroARKPlugin(Star):
         except Exception:
             return ""
 
-    async def _run_kook_button_command(self, adapter_inst, user_id, nickname, value: str):
-        """KOOK 卡片按钮点击：把 value 当指令执行，结果**私聊**回点击者。
+    async def _run_kook_button_command(self, adapter_inst, user_id, nickname, value: str,
+                                       dest: str = '', channel_type: str = ''):
+        """KOOK 卡片按钮点击：把 value 当指令执行，结果**发回点击发生的那个频道**（点在私聊就回私聊）。
         不注入 AstrBot 管道 —— 一是避免 LLM 也插一句，二是伪造的 msg_id 会被 KOOK 当"引用不存在"拒收。"""
         text = str(value).strip()
         if text.startswith('/'):
@@ -1140,14 +1145,15 @@ class ZeroARKPlugin(Star):
         if not text:
             return
         name = text.split()[0]
+        in_channel = bool(dest) and str(channel_type).upper() not in ('PERSON', '')
         try:
             from astrbot.api.platform import AstrBotMessage, MessageMember, MessageType
             from astrbot.api.message_components import Plain
             abm = AstrBotMessage()
-            abm.type = MessageType.FRIEND_MESSAGE
+            abm.type = MessageType.GROUP_MESSAGE if in_channel else MessageType.FRIEND_MESSAGE
             abm.self_id = str(getattr(getattr(adapter_inst, 'client', None), 'bot_id', '') or '')
-            abm.session_id = str(user_id)
-            abm.group_id = ''
+            abm.session_id = str(dest) if in_channel else str(user_id)
+            abm.group_id = str(dest) if in_channel else ''
             abm.sender = MessageMember(user_id=str(user_id), nickname=nickname or str(user_id))
             abm.message_id = ''
             abm.message = [Plain(text=text)]
@@ -1186,6 +1192,12 @@ class ZeroARKPlugin(Star):
             logger.error(f"❌ KOOK 按钮指令执行失败: {type(e).__name__}: {e}")
             outs.append(f"❌ 执行 {value} 出错：{type(e).__name__}")
         body = "\n\n".join([o for o in outs if o]).strip() or "（没有输出）"
+        if in_channel:
+            ok = await self._send_group_text('kook', str(dest), body)
+            logger.info(f"🖱️ KOOK 按钮 {value!r} → 回频道 {str(dest)[:8]}…{'成功' if ok else '失败'}")
+            if ok:
+                return
+            logger.warning("KOOK 按钮回频道失败，改走私聊")
         ok = await self._send_private_msg(user_id, body, platform='kook')
         logger.info(f"🖱️ KOOK 按钮 {value!r} → 私聊回执{'成功' if ok else '失败'}")
 

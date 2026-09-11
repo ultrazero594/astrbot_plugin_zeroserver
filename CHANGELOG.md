@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.13.1] - 2026-09-11
+
+### 修复 / Fixed
+- **又一处地址泄露**：新增的服务器状态提醒 `/状态`、以及 `/签到` `/加点` `/代加点` `/rcon` 的成功提示里，服务器名直接用了内部 RCON 目标名（形如 `ASA-繁星 a2.example.cn:18083`），把 **RCON 地址+端口**带进了群/频道。新增 `_target_label()` 在展示前统一剥掉尾部的 `host:port`，日志里仍保留完整地址便于排查
+  - Another address leak fixed: status notifications, `/状态`, and the success messages of `/签到` `/加点` `/代加点` `/rcon` printed the internal RCON target name (e.g. `ASA-繁星 a2.example.cn:18083`), exposing the RCON address/port. New `_target_label()` strips the trailing `host:port` for display (logs keep the full address)
+
 ## [1.13.0] - 2026-09-11
 
 ### 新增 / Added

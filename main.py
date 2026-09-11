@@ -464,7 +464,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.13.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.13.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -708,7 +708,7 @@ class ZeroARKPlugin(Star):
             return
         events = []
         for t, ok in zip(targets, oks):
-            name = str(t.get('name') or f"{t.get('host')}:{t.get('port')}")
+            name = self._target_label(t.get('name') or f"{t.get('host')}:{t.get('port')}")
             st = self._server_status.get(name) or {'online': None, 'fails': 0}
             ok = bool(ok) if not isinstance(ok, Exception) else False
             if ok:
@@ -911,6 +911,13 @@ class ZeroARKPlugin(Star):
     @staticmethod
     def _target_key(platform: str, target_id) -> str:
         return f"{str(platform or '').strip()}:{str(target_id).strip()}"
+
+    @staticmethod
+    def _target_label(name) -> str:
+        """服务器显示名：去掉名称尾部附带的 host:port，避免把直连/RCON 地址发到群里"""
+        s = str(name or '').strip()
+        s = re.sub(r'\s*[A-Za-z0-9._-]+:\d{2,5}\s*$', '', s).strip()
+        return s or "未知服务器"
 
     def _platform_label(self, platform_name: str) -> str:
         for t in self._broadcast_targets():
@@ -2115,7 +2122,7 @@ class ZeroARKPlugin(Star):
                     yield event.plain_result(f"❌ 目标 '{t.get('name')}' 缺少地址")
                     return
                 out = await asyncio.get_running_loop().run_in_executor(None, self._execute_rcon_command_sync, host, port, command)
-                yield event.plain_result(f"📡 RCON 执行结果 ({t.get('name')}):\n{out}")
+                yield event.plain_result(f"📡 RCON 执行结果 ({self._target_label(t.get('name'))}):\n{out}")
                 return
         # 裸命令且无法识别版本/目标：拒绝执行（防止误广播到全部服务器）
         yield event.plain_result("❌ 无法识别版本或目标，未执行任何命令（避免误发全部服务器）。\n请按上方用法指定 ASE/ASA 版本或具体目标名。")
@@ -2176,7 +2183,7 @@ class ZeroARKPlugin(Star):
             return
         logger.info(f"✅ 管理员加点: game={game} id={pid} +{points} server={target.get('name')} resp={out[:60]}")
         verify = await self._getpoints_text(target, pid) if cfg.get('verify_with_getpoints', True) else ""
-        yield event.plain_result(f"✅ 已在 {target.get('name')} 为{self._game_cn(game)}玩家 {pid} 加点 +{points}{verify}")
+        yield event.plain_result(f"✅ 已在 {self._target_label(target.get('name'))} 为{self._game_cn(game)}玩家 {pid} 加点 +{points}{verify}")
 
     @filter.command("addpoints")
     async def owner_addpoints_command(self, event: AstrMessageEvent):
@@ -2346,7 +2353,7 @@ class ZeroARKPlugin(Star):
             logger.info(f"✅ 群聊代加点: 由owner为 qq={tqq} game={game} +{points} server={online.get('name')}")
             verify = await self._getpoints_text(online, pid) if cfg.get('verify_with_getpoints', True) else ""
             role = f"（{row['player_name']}）" if row.get('player_name') else ""
-            results.append(f"✅ @{self._mask_id(tqq)}{role}：{cn} +{points} 已完成（{online.get('name')}）{verify}")
+            results.append(f"✅ @{self._mask_id(tqq)}{role}：{cn} +{points} 已完成（{self._target_label(online.get('name'))}）{verify}")
         if not results:
             yield event.plain_result("⚠️ 没有可处理的目标")
             return
@@ -3402,7 +3409,7 @@ class ZeroARKPlugin(Star):
         logger.info(f"✅ 签到加点成功: qq={qq} game={game} +{points} server={target.get('name')} cmd={command} resp={out[:60]}")
         verify = await self._getpoints_text(target, bind_row['player_id']) if cfg.get('verify_with_getpoints', True) else ""
         pid_show = self._mask_id(bind_row['player_id']) if in_group else str(bind_row['player_id'])[:16]
-        return f"✅ {cn}签到成功：已在 {target.get('name')} 加点 +{points} 点（ID: {pid_show}）{verify}"
+        return f"✅ {cn}签到成功：已在 {self._target_label(target.get('name'))} 加点 +{points} 点（ID: {pid_show}）{verify}"
 
     async def _getpoints_text(self, target, pid) -> str:
         """用 ArkShop GetPlayerPoints 回读玩家余额，返回用于拼接的提示片段；无输出/失败返回空串"""

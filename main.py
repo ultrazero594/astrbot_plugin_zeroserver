@@ -6,6 +6,7 @@ import copy
 import os
 import random
 import time
+import warnings
 from datetime import datetime, timedelta
 
 import a2s
@@ -434,7 +435,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.3.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.3.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -468,6 +469,9 @@ class ZeroARKPlugin(Star):
         logger.info("✅ 缓存更新检测任务已创建")
 
         # QQ 绑定 / 签到：初始化数据表（幂等；失败只记日志，不影响主流程）
+        # _qq_tables_ready：首次检查通过后置 True，后续命令直接返回，
+        # 不再每条命令都跑一遍 CREATE TABLE IF NOT EXISTS + information_schema 查询
+        self._qq_tables_ready = False
         self._background_tasks.append(asyncio.create_task(self._safe_ensure_qq_tables()))
 
         # 游戏内绑定监听（玩家在游戏公屏输入 qqbind/zsbind）
@@ -2461,35 +2465,41 @@ class ZeroARKPlugin(Star):
             db=cfg.get('database', 'qq'), charset='utf8mb4',
             autocommit=False, connect_timeout=5)
 
-    async def _ensure_qq_tables(self):
-        """确保绑定/签到表存在（幂等），并自动迁移旧库：qq BIGINT → VARCHAR(64) 以支持 openid"""
+    async def _ensure_qq_tables(self, force: bool = False):
+        """确保绑定/签到表存在（幂等），并自动迁移旧库：qq BIGINT → VARCHAR(64) 以支持 openid。
+        首次检查通过后置 _qq_tables_ready=True，后续调用直接返回（避免每条命令都查一遍元数据）"""
+        if self._qq_tables_ready and not force:
+            return
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
-            await cur.execute("""
-                CREATE TABLE IF NOT EXISTS qq_bind (
-                    qq VARCHAR(64) NOT NULL,
-                    platform VARCHAR(16) NOT NULL DEFAULT '',
-                    game VARCHAR(8) NOT NULL,
-                    player_id VARCHAR(64) NOT NULL,
-                    player_name VARCHAR(100) NOT NULL DEFAULT '',
-                    last_map VARCHAR(50) NOT NULL DEFAULT '',
-                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    PRIMARY KEY (qq, game),
-                    KEY idx_game_player (game, player_id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            """)
-            await cur.execute("""
-                CREATE TABLE IF NOT EXISTS qq_checkin (
-                    qq VARCHAR(64) NOT NULL,
-                    game VARCHAR(8) NOT NULL,
-                    day CHAR(10) NOT NULL,
-                    points INT NOT NULL DEFAULT 0,
-                    server_name VARCHAR(100) NOT NULL DEFAULT '',
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (qq, game, day)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-            """)
+            with warnings.catch_warnings():
+                # 抑制 aiomysql 对 CREATE TABLE IF NOT EXISTS 打出的 "Table ... already exists" 噪音
+                warnings.simplefilter("ignore")
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS qq_bind (
+                        qq VARCHAR(64) NOT NULL,
+                        platform VARCHAR(16) NOT NULL DEFAULT '',
+                        game VARCHAR(8) NOT NULL,
+                        player_id VARCHAR(64) NOT NULL,
+                        player_name VARCHAR(100) NOT NULL DEFAULT '',
+                        last_map VARCHAR(50) NOT NULL DEFAULT '',
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (qq, game),
+                        KEY idx_game_player (game, player_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS qq_checkin (
+                        qq VARCHAR(64) NOT NULL,
+                        game VARCHAR(8) NOT NULL,
+                        day CHAR(10) NOT NULL,
+                        points INT NOT NULL DEFAULT 0,
+                        server_name VARCHAR(100) NOT NULL DEFAULT '',
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (qq, game, day)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
 
             async def _col_type(table, col):
                 await cur.execute(
@@ -2522,6 +2532,7 @@ class ZeroARKPlugin(Star):
                     logger.info(f"ℹ️ qq_bind 仍有 {_legacy_n} 条旧 QQ 号绑定(legacy)，这些玩家需重新绑定一次")
             await conn.commit()
             await cur.close()
+            self._qq_tables_ready = True
             logger.info("✅ qq 数据库表结构已就绪 (qq_bind / qq_checkin)")
         finally:
             conn.close()

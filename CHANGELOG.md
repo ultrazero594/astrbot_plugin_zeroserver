@@ -2,6 +2,15 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.3.2] - 2026-09-11
+
+### 优化 / Changed
+- 绑定/签到命令不再每次都跑一遍建表与元数据检查：`_ensure_qq_tables()` 首次通过后置 `_qq_tables_ready`，后续调用直接返回（原先每条 `/绑定`、`/签到` 都会执行 2 条 `CREATE TABLE IF NOT EXISTS` + 3 次 `information_schema` 查询）
+  - Binding / check-in commands no longer re-run table setup every time: `_ensure_qq_tables()` now short-circuits after the first successful check (previously every `/bind` and `/signin` ran two `CREATE TABLE IF NOT EXISTS` plus three `information_schema` queries)
+- 抑制 aiomysql 对 `CREATE TABLE IF NOT EXISTS` 打出的 `Warning: Table '...' already exists` 噪音（原先每条命令都会在日志里刷一次）
+  - Suppressed aiomysql's `Warning: Table '...' already exists` noise from `CREATE TABLE IF NOT EXISTS` (previously printed on every command)
+- `_ensure_qq_tables(force=True)` 可强制重新检查（供排查时手动调用）
+
 ## [1.3.1] - 2026-09-11
 
 ### 修复 / Fixed

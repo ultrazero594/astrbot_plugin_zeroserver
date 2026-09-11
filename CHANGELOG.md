@@ -2,6 +2,17 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.6.2] - 2026-09-11
+
+### 修复 / Fixed
+- **`/在线玩家` 不再输出服务器地址**：名单标题原本是 `【地图】a2.xxx:16060（1 人）`，会把直连/RCON 地址暴露在群/频道里；现在改为 `【地图】1 人在线`
+  - **No more server addresses in `/在线玩家`**: the header used to print `【map】host:port (n players)`, leaking connect/RCON addresses into public chats; it now reads `【map】N 人在线`
+
+### 新增 / Added
+- **群里漏 @机器人 的指令会给一次提示**：在 QQ 群里直接发 `签到` / `/绑定 …`（没 @机器人）时，AstrBot 不会把它派发给指令处理器、玩家会以为"没反应"；现在会回一句「群里发指令要先 @机器人 哦～例如：@机器人 /帮助」，且该消息不会被转发到游戏
+  - **Hint when a group command misses the @-mention**: messages like `签到` or `/绑定 …` sent in a QQ group without @-mentioning the bot used to be silently dropped (AstrBot only dispatches @-ed messages to command handlers). The bot now replies with a hint and does not relay that message into the game
+- KOOK 频道不受影响（频道里本来就不需要 @）
+
 ## [1.6.1] - 2026-09-11
 
 ### 修复 / Fixed

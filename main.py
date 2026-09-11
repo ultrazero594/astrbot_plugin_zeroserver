@@ -446,7 +446,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.6.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.6.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -763,6 +763,21 @@ class ZeroARKPlugin(Star):
         if len(s) <= head + tail + 1:
             return s
         return f"{s[:head]}…{s[-tail:]}"
+
+    # 群里"没 @机器人 就发指令"时用于识别并提示的命令名
+    CMD_HINTS = ("绑定", "解绑", "查绑定", "签到", "在线玩家", "在线", "谁在线", "进化", "飞升", "查服",
+                 "倍率", "直连", "帮助", "我是谁", "代加点", "加点", "rcon", "测试推送", "更新地址",
+                 "bind", "unbind", "mybind", "signin", "players", "help", "whoami")
+
+    def _looks_like_command(self, text: str) -> bool:
+        """判断一条群消息是不是"想发指令但没 @机器人"（首 token 精确等于某个命令名，或带 / 前缀）"""
+        t = str(text or '').strip()
+        slash = t.startswith('/')
+        body = t.lstrip('/').strip()
+        if not body:
+            return False
+        first = body.split()[0].lower()
+        return slash or first in {c.lower() for c in self.CMD_HINTS}
 
     async def _wait_platform(self, platform_name: str, purpose: str = "", timeout: float = 20.0):
         """等待指定平台适配器就绪；超时返回 None（避免后台任务无限等待）"""
@@ -1633,7 +1648,7 @@ class ZeroARKPlugin(Star):
                 if not players:
                     continue
                 gcount += len(players)
-                lines.append(f"【{k}】{addr}（{len(players)} 人）")
+                lines.append(f"【{k}】{len(players)} 人在线")
                 for i, pl in enumerate(players, 1):
                     pid = str(pl.get('id') or '')
                     if g == 'ASA':
@@ -3429,7 +3444,7 @@ class ZeroARKPlugin(Star):
         if not self._check_whitelist(event):
             return
         message = event.message_str.strip()
-        if not message or message.startswith('/'):
+        if not message:
             return
         group_id = event.get_group_id()
         if not group_id:
@@ -3450,6 +3465,15 @@ class ZeroARKPlugin(Star):
         # 只处理配置里的互通目标：其它群/频道（谁都能拉机器人）不往游戏公屏刷消息
         if targets and not in_targets:
             logger.debug(f"⏭️ {src_key} 不在 broadcast_targets 内，不转发到游戏")
+            return
+
+        # 群里没 @机器人 就发指令：AstrBot 不会把它派发给指令处理器，这里给一次提示（KOOK 频道不需要 @）
+        if platform_name != 'kook' and self._looks_like_command(message):
+            logger.info(f"💡 群内未 @机器人 的指令，已回提示: {message[:30]}")
+            await self._send_group_text(platform_name, group_id,
+                                        "💡 群里发指令要先 @机器人 哦～\n例如：@机器人 /帮助")
+            return
+        if message.startswith('/'):
             return
 
         # ---------- LLM 自动回复（可选） ----------

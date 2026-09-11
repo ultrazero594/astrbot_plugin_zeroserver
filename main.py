@@ -242,6 +242,8 @@ DEFAULT_CONFIG = {
     # 跨平台互推：QQ 侧展示 KOOK 邀请链接、KOOK 侧展示 QQ 群号（留空则该侧不显示）
     "invite_kook": "",
     "invite_qq": "",
+    # 是否在"所有回复"底部统一附带互推入口行（关闭则只在 /帮助 显示）
+    "invite_on_reply": True,
     # 隐私：/在线玩家 名单里的游戏ID是否打码（默认打码，改为 false 则显示完整 ID）
     "mask_player_ids": True,
     "rcon_targets": [],                       # 手动 RCON 目标（也可由 rcon_html_url 自动构建）
@@ -453,7 +455,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.8.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.9.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2423,6 +2425,31 @@ class ZeroARKPlugin(Star):
         if invite:
             lines += ["", invite]
         return lines
+
+    @filter.on_decorating_result()
+    async def on_decorating_result(self, event: AstrMessageEvent):
+        """发送前钩子：给所有回复底部统一补上"对方社区"入口行（QQ 侧给 KOOK 邀请，KOOK 侧给 QQ 群）"""
+        try:
+            if not self.config.get('invite_on_reply', True):
+                return
+            line = self._invite_line(self._event_platform(event))
+            if not line:
+                return
+            result = event.get_result()
+            if result is None or not getattr(result, 'chain', None):
+                return
+            from astrbot.api.message_components import Plain
+            texts = [c for c in result.chain if isinstance(c, Plain) and getattr(c, 'text', '')]
+            if any(line in c.text for c in texts):
+                return                      # /帮助 等回复里已经带了，不重复
+            footer = self.footer or ''
+            for comp in reversed(texts):
+                if footer.strip() and footer in comp.text:
+                    comp.text = comp.text.replace(footer, "\n\n" + line + footer, 1)
+                    return
+            result.chain.append(Plain("\n\n" + line))
+        except Exception as e:
+            logger.debug(f"回复附加互推信息失败: {e}")
 
     @filter.command("help")
     async def help_command(self, event: AstrMessageEvent):

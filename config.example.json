@@ -20,8 +20,9 @@
     { "platform": "kook", "id": "你的KOOK频道ID", "label": "KOOK公共频道" }
   ],
   "bridge_enabled": false,
-  "invite_kook": "",
-  "invite_qq": "",
+  "invite_kook": "https://kook.vip/xxxx",
+  "invite_qq": "123456789",
+  "invite_on_reply": true,
   "mask_player_ids": true,
   "rcon_targets": [],
   "cache_mirror_url": "",

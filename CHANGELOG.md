@@ -2,6 +2,14 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.9.0] - 2026-09-11
+
+### 新增 / Added
+- **所有回复统一附带互推入口**：新增 `@filter.on_decorating_result()` 钩子，在消息发送前给**任意回复**底部补上「对方社区」一行（QQ 侧显示 KOOK 邀请、KOOK 侧显示 QQ 群号），不再只有 `/帮助` 才有；`/帮助` 自身已含该行时会自动跳过不重复；回复里带官网页脚时，该行会插在页脚**之前**
+  - **Invite line on every reply**: a new `on_decorating_result` hook appends the other community's entry to any outgoing reply (KOOK invite on QQ, QQ group number on KOOK), not just `/help`; it skips when the line is already present and inserts before the site footer when there is one
+- 新增配置 `invite_on_reply`（默认 `true`）：关掉后只保留 `/help` 里的那一行
+  - New `invite_on_reply` switch (default `true`); set to `false` to keep the line only in `/help`
+
 ## [1.8.1] - 2026-09-11
 
 ### 修复 / Fixed

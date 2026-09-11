@@ -2,6 +2,14 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.16.0] - 2026-09-12
+
+### 新增 / Added
+- 新增配置 `arkshop_exclude_servers`（默认 `["Club", "海洋"]`）：**没装 ArkShop 插件的服务器**名单，按**名字子串**匹配（不区分大小写）。命中后：
+  - `/签到`、`/加点`、`/代加点` 选服务器时会跳过它们（`_pick_online_rcon_target` 过滤）
+  - 倍率更新时的 `ForceUpdateDynamicConfig` 广播也会跳过它们（`serverchat` 照旧发给全部，因为那是原生命令）
+  - 新增 `New config arkshop_exclude_servers` (default `["Club", "海洋"]`): servers **without the ArkShop plugin**, matched by case-insensitive name substring; point-granting commands and the rate-refresh broadcast skip them
+
 ## [1.15.1] - 2026-09-12
 
 ### 修复 / Fixed

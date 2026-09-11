@@ -29,6 +29,7 @@
   "status_notify_fail_threshold": 2,
   "status_notify_limit": 8,
   "qq_keyboard_template_id": "",
+  "arkshop_exclude_servers": ["Club", "海洋"],
   "mask_player_ids": true,
   "rcon_targets": [],
   "cache_mirror_url": "",

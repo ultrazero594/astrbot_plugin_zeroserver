@@ -258,6 +258,8 @@ DEFAULT_CONFIG = {
     "status_notify_limit": 8,            # 单条播报最多列几条变化
     # QQ 开放平台申请到「消息按钮模板」后填模板 id（填了就用模板发送按钮，否则用内联按钮实验）
     "qq_keyboard_template_id": "",
+    # 没装 ArkShop 插件的服务器（按名字子串匹配，不区分大小写）：加点、倍率刷新等 ArkShop 命令会跳过它们
+    "arkshop_exclude_servers": ["Club", "海洋"],
     # 隐私：/在线玩家 名单里的游戏ID是否打码（默认打码，改为 false 则显示完整 ID）
     "mask_player_ids": True,
     "rcon_targets": [],                       # 手动 RCON 目标（也可由 rcon_html_url 自动构建）
@@ -469,7 +471,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.15.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.16.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -768,9 +770,30 @@ class ZeroARKPlugin(Star):
             out.append("未知：\n" + "\n".join(f"· {x}" for x in unk[:10]))
         return "\n".join(out)
 
-    async def _send_rcon_command_to_all(self, command: str):
-        """向全部 RCON 目标并发发送命令（单个失败不影响其它目标）"""
-        await self._send_rcon_concurrent(self.rcon_targets, command)
+    def _arkshop_excluded(self, target) -> bool:
+        """该服务器是否没装 ArkShop（配置 arkshop_exclude_servers 里的名字子串，不区分大小写）"""
+        names = self.config.get('arkshop_exclude_servers') or []
+        if not names:
+            return False
+        tname = str((target or {}).get('name') or '').lower()
+        if not tname:
+            return False
+        return any(str(n).strip().lower() and str(n).strip().lower() in tname for n in names)
+
+    def _arkshop_targets(self, targets=None) -> list:
+        """过滤掉没装 ArkShop 的服务器"""
+        src = self.rcon_targets if targets is None else targets
+        kept = [t for t in (src or []) if not self._arkshop_excluded(t)]
+        skipped = [t.get('name') for t in (src or []) if self._arkshop_excluded(t)]
+        if skipped:
+            logger.debug(f"⏭️ 跳过未装 ArkShop 的服务器: {skipped}")
+        return kept
+
+    async def _send_rcon_command_to_all(self, command: str, skip_arkshop_excluded: bool = False):
+        """向全部 RCON 目标并发发送命令（单个失败不影响其它目标）
+        skip_arkshop_excluded=True 时跳过没装 ArkShop 的服务器（如 club / 海洋）。"""
+        targets = self._arkshop_targets() if skip_arkshop_excluded else self.rcon_targets
+        await self._send_rcon_concurrent(targets, command)
 
     async def _send_rcon_concurrent(self, targets: list, command: str):
         """并发向多个 RCON 目标发送同一命令，逐目标记录成功/失败，互不阻塞。
@@ -814,7 +837,7 @@ class ZeroARKPlugin(Star):
                         cn = RATE_NAMES.get(key, key)
                         changes.append(f"🔄 {cn}：{old} → {new}")
                 if changes:
-                    await self._send_rcon_command_to_all("ForceUpdateDynamicConfig")
+                    await self._send_rcon_command_to_all("ForceUpdateDynamicConfig", skip_arkshop_excluded=True)
                     # 游戏内广播（精简摘要）
                     short = []
                     for c in changes[:5]:
@@ -3434,9 +3457,11 @@ class ZeroARKPlugin(Star):
             return False
 
     async def _pick_online_rcon_target(self, version: str):
-        """并发探测，返回该版本第一台响应 RCON 的在线服务器；无则返回 None"""
+        """并发探测，返回该版本第一台响应 RCON 的在线服务器；无则返回 None
+        （跳过没装 ArkShop 的服务器，否则加点命令会打到没有插件的服上）"""
         targets = [t for t in (self.rcon_targets or [])
                    if str(t.get('name', '')).startswith(version + "-") and t.get('host') and t.get('port')]
+        targets = self._arkshop_targets(targets)
         if not targets:
             return None
         loop = asyncio.get_running_loop()

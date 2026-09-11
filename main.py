@@ -488,7 +488,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.3", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.4", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1156,9 +1156,14 @@ class ZeroARKPlugin(Star):
         "\U0000FE0F\U0000200D\U000020E3"
         "]+")
 
+    # 转发到游戏公屏前顺带把"@提及"里的真实 ID 换掉：
+    # QQ 官方机器人的 @ 在文本里是 <@openid>，KOOK 是 (met)userid(met) —— 直接发出去等于把 ID 泄露到公屏
+    MENTION_RE = re.compile(r'(?:<@!?[A-Za-z0-9_\-]{5,}>)|(?:\(met\)[A-Za-z0-9_\-]{3,}\(met\))')
+
     def _game_safe(self, text: str) -> str:
-        """发往游戏公屏前清理 ARK 显示不了的字形（emoji/符号），中文与 ASCII 原样保留"""
+        """发往游戏公屏前清理：ARP 显示不了的字形（emoji/符号）+ @提及里的真实 ID"""
         s = self.EMOJI_RE.sub('', str(text or ''))
+        s = self.MENTION_RE.sub('@某人', s)
         return re.sub(r'[ \t]{2,}', ' ', s).strip()
 
     # ======================== CCA（CrossChatAscended）通道 ========================
@@ -4488,7 +4493,8 @@ class ZeroARKPlugin(Star):
 
         # ---------- 群间互通：把本条消息同步到其它广播目标（QQ群 ↔ KOOK 频道） ----------
         if self.config.get('bridge_enabled', False):
-            bridge_text = f"🔀 [{self._platform_label(platform_name)}] {sender_name}: {message}"
+            # 跨平台互通也把 @提及里的真实 ID 换掉（QQ 的 <@openid> / KOOK 的 (met)id(met)）
+            bridge_text = f"🔀 [{self._platform_label(platform_name)}] {sender_name}: {self.MENTION_RE.sub('@某人', message)}"
             sent_n = await self._broadcast(bridge_text, exclude=src_key)
             if sent_n:
                 logger.info(f"🔀 群间互通已转发到 {sent_n} 个目标")

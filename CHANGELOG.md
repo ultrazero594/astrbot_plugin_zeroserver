@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.19.4] - 2026-09-12
+
+### 修复 / Fixed
+- **转发到公屏/互通时 @提及里的真实 ID 会泄露**：QQ 官方机器人的 @ 在消息文本里是 `<@openid>`、KOOK 是 `(met)userid(met)`，之前原样转发 → 游戏公屏出现 `[QQ]: 【跨服】某某: <@49855A8C…> …`（openid 直接暴露）。新增 `MENTION_RE`，在 `_game_safe()`（覆盖 RCON 与 CCA 两条发往游戏的通道）与**跨平台互通**文案里统一替换成 `@某人`；长度不足 5 位的 `<@123>` 之类不动，避免误伤
+  - **Fixed leaking real IDs through @mentions**: QQ puts `<@openid>` and KOOK uses `(met)userid(met)` in message text; those were relayed verbatim into the game chat. A new `MENTION_RE` rewrites them to `@某人` in `_game_safe()` (both RCON & CCA game-facing paths) and in the cross-platform bridge text
+
 ## [1.19.3] - 2026-09-12
 
 ### 新增 / Added

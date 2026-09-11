@@ -476,7 +476,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.17.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.17.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2576,8 +2576,7 @@ class ZeroARKPlugin(Star):
                 "· /关联 → QQ ↔ KOOK 身份打通（同一游戏账号自动关联，也可 /关联 开码 手动）",
                 "· 一个游戏账号每天只加一次点数（两边都签到也不会双倍）",
             ]
-            if has_onebot:
-                lines.append("· 游戏公屏：qqbind <QQ号> → 未绑过时可直接绑定（OneBot 渠道）")
+            lines.append("· 游戏内也能绑：/我的ID 查身份 ID → 游戏公屏发 qqbind <ID>")
         elif sec in ('管理', 'admin', 'owner'):
             if not show_admin_help:
                 lines = ["ℹ️ 管理指令只有主人可见：请在私聊机器人里发 /帮助 管理"]
@@ -2603,12 +2602,11 @@ class ZeroARKPlugin(Star):
                 "· 懒得记指令？发 /菜单 用编号（/1 就是在线玩家）",
             ]
             if is_kook and in_group:
-                lines.append("· 频道里直接发指令即可，不用 @机器人")
+                lines.append("· KOOK 频道：直接发 /指令 即可，不用 @机器人")
             elif in_group:
-                lines.append("· 群里先 @机器人 再发指令" if not has_onebot
-                             else "· 群里先 @机器人 再发指令（绑定主键 openid）")
+                lines.append("· QQ 群：发 /指令 即可（带 / 前缀就会响应），@机器人 也可以")
             else:
-                lines.append("· 私聊直接发指令即可")
+                lines.append("· 私聊：直接发 /指令 即可")
             if self.config.get('bridge_enabled', False) and len(self._broadcast_targets()) > 1:
                 labels = "、".join(t['label'] or t['platform'] for t in self._broadcast_targets())
                 lines.append(f"· 消息互通：{labels}（含游戏内聊天）")

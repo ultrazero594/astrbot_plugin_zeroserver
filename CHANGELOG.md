@@ -2,6 +2,14 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.17.0] - 2026-09-12
+
+### 新增 / Added
+- **`/我的ID`**（别名 `/我的id`、`/myid`）：显示你自己的身份 ID**全文**（不限于私聊——QQ 个人认证下没有私聊可用），并给出「复制这串 → 进游戏公屏发 `qqbind <ID>`」的三步用法；带"别外传"提示。专为"不想去查 EOS/SteamID"的玩家设计
+- **游戏内 `qqbind` 支持 openid**：`QQBIND_RE` 从只认 5-12 位纯数字放宽为 `[A-Za-z0-9_-]{5,64}`（仍要求整行只有 `qqbind <ID>`，避免误匹配聊天内容），因此官方机器人玩家可以复制自己的 openid 到游戏里完成绑定；绑定记录的 platform 按"是否纯数字"自动判为 `legacy` / `qq_official`（原来硬编码 `aiocqhttp`）
+- **验证码群内兜底**（配置 `bind_code_public_fallback`，默认 `true`）：QQ 个人认证收不到私聊时，`/绑定 <游戏> 开绑` 会把 6 位验证码直接回在当前会话里（一次性、限时、附"请勿外传，别人用了会绑到他自己的角色上"），否则 QQ 玩家完全走不了验证码流程。想严格保密可设为 `false`
+- `/help 绑定` 分类页、`BIND_GUIDE`、游戏内帮助文案同步更新为四种绑定方式
+
 ## [1.16.0] - 2026-09-12
 
 ### 新增 / Added

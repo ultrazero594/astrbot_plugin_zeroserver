@@ -2,6 +2,18 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.10.0] - 2026-09-11
+
+### 优化 / Changed
+- **`/帮助` 瘦身 + 分级**：总览从 26 行压到 20 行（群聊普通版 421 字），只留「最常用」三条 + 分类入口；细节按需查看，不再一次性糊满屏
+  - `/help` slimming: the overview dropped from 26 lines to 20 (421 chars for a regular QQ group), keeping only the three most-used commands plus section entry points
+- 新增分类详情页：
+  - `/帮助 查询` → 在线玩家 / 状态 / 倍率 / 直连（8 行）
+  - `/帮助 绑定` → 绑定 / 开绑 / 解绑 / 关联 / 签到（9 行）
+  - `/帮助 管理` → RCON / 加点 / 代加点 / 测试推送 / 关联管理（仅主人可见，非主人提示去私聊）
+  - New section pages: `/help 查询` `/help 绑定` `/help 管理` (admin page is owner-only; others are told to DM)
+- 管理指令段不再默认出现在每次 `/帮助` 里，只在 `/帮助 管理` 或分类页显示；互推入口行在所有分类页底部照常附带
+
 ## [1.9.0] - 2026-09-11
 
 ### 新增 / Added

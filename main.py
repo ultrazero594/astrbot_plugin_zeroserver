@@ -455,7 +455,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.9.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.10.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2358,69 +2358,79 @@ class ZeroARKPlugin(Star):
         async for r in self._whoami_cmd(event):
             yield r
 
-    def _help_lines(self, show_admin_help: bool, platform_name: str = "", in_group: bool = True) -> list:
-        """构建帮助文本（按平台定制；show_admin_help=True 时额外显示管理指令段）"""
+    def _help_lines(self, show_admin_help: bool, platform_name: str = "", in_group: bool = True,
+                    section: str = "") -> list:
+        """构建帮助文本。
+        section 为空 → 只给精简总览（最常用 + 分类入口）；section 有值 → 给该分类完整清单。"""
         sc = self._signin_cfg()
         ase_pts = sc.get('ase_points', 50)
         asa_pts = sc.get('asa_points', 50)
         is_kook = (platform_name or '').strip() == 'kook'
         has_onebot = self._find_platform_inst('aiocqhttp') is not None
-        lines = [
-            "📖 ZeroARK 机器人指令（进化=ASE / 飞升=ASA）",
-            "",
-            "【查服务器】",
-            "· /进化 [地图名] ｜ /飞升 [地图名] → 该版本状态（不给地图名=列全部）",
-            "· /查服 <IP:端口 或 地图名> [进化|飞升] → 通用查询",
-            "· /倍率 → 当前动态倍率 ｜ /直连 → 所有地图直连地址",
-            "",
-            "【查在线玩家】",
-            "· /在线玩家 [进化|飞升] [地图名] → 在线人数 + 部落名（不给版本=两边都查）",
-            "",
-            "【账号绑定 & 签到】QQ 和 KOOK 都能绑；进化 / 飞升各绑各的",
-            "· /绑定 进化 <SteamID64> ｜ /绑定 飞升 <EOS 32位hex> → 首次绑定",
-            "· /绑定 <进化|飞升> 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>（换绑也走这个）",
-            f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
-            "· /查绑定 → 查看我的绑定 ｜ /解绑 <进化|飞升> → 解除绑定",
-            "· /关联 → QQ ↔ KOOK 身份打通（同一游戏账号会自动关联，也可 /关联 开码 手动打通）",
-            "· 一边绑定后，另一个平台只要 /关联 打通就共用同一份绑定；绑同一游戏账号会自动关联",
-        ]
-        if is_kook and in_group:
-            lines += [
-                "",
-                "【本频道】直接在频道里发指令即可，不用 @机器人",
-                "· 绑定/签到请固定在同一处（频道或私聊），主键是本平台的用户ID",
+        sec = (section or '').strip().lower()
+
+        if sec in ('查询', '查', 'query', 'q'):
+            lines = [
+                "📖 查询类指令",
+                "· /在线玩家 [进化|飞升] [地图名] → 在线人数 + 部落名",
+                "· /进化 [地图名] ｜ /飞升 [地图名] → 服务器状态（不给地图名=列全部）",
+                "· /查服 <IP:端口 或 地图名> [进化|飞升] → 通用查询",
+                "· /倍率 → 当前动态倍率",
+                "· /直连 → 所有地图直连地址",
             ]
-        elif in_group:
-            lines += [
-                "",
-                "【群里怎么用】先 @机器人 再发指令",
-                "· 绑定/签到建议在私聊完成；群与私聊身份不同时用 /关联 打通",
-                "· 绑定主键是 openid（官方机器人拿不到真实 QQ 号）" if not has_onebot else
-                "· 绑定主键是当前渠道的用户ID（OneBot 下是 QQ 号，官方机器人下是 openid）",
+        elif sec in ('绑定', '账号', 'bind', 'signin'):
+            lines = [
+                "📖 绑定 / 签到",
+                "· /绑定 进化 <SteamID64> ｜ /绑定 飞升 <EOS 32位hex> → 首次绑定",
+                "· /绑定 <进化|飞升> 开绑 → 验证码私发给你 → 游戏公屏发 zsbind <验证码>（换绑也走这个）",
+                f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
+                "· /查绑定 → 查看我的绑定 ｜ /解绑 <进化|飞升> → 解除绑定",
+                "· /关联 → QQ ↔ KOOK 身份打通（同一游戏账号自动关联，也可 /关联 开码 手动）",
+                "· 一个游戏账号每天只加一次点数（两边都签到也不会双倍）",
             ]
+            if has_onebot:
+                lines.append("· 游戏公屏：qqbind <QQ号> → 未绑过时可直接绑定（OneBot 渠道）")
+        elif sec in ('管理', 'admin', 'owner'):
+            if not show_admin_help:
+                lines = ["ℹ️ 管理指令只有主人可见：请在私聊机器人里发 /帮助 管理"]
+            else:
+                lines = [
+                    "📖 管理员指令",
+                    "· /rcon <进化|飞升> [地图名] <命令> → 执行 RCON 命令",
+                    "· /加点 <进化|飞升> <ID> <点数> → 加 ArkShop 点数",
+                    "· /代加点 <进化|飞升> <点数> @群友… → 给已绑定群友加点",
+                    "· /测试推送 → 测试主动消息通道 ｜ /更新地址 → 刷新直连地址缓存",
+                    "· /关联 列表 → 查看身份关联 ｜ /关联 解除 @某人 → 强制解除他人关联",
+                    "· /我是谁 → 查看自己的平台ID / 群标识",
+                ]
         else:
-            lines += ["", "【私聊】直接发指令即可，绑定 / 签到也可以在这里完成"]
-        if self.config.get('bridge_enabled', False) and len(self._broadcast_targets()) > 1:
-            labels = "、".join(t['label'] or t['platform'] for t in self._broadcast_targets())
-            lines += ["", f"【消息互通】{labels} 之间互通；游戏内聊天会同时发到这些位置"]
-        if show_admin_help:
-            lines += [
+            lines = [
+                "📖 ZeroARK 机器人指令（进化=ASE / 飞升=ASA）",
                 "",
-                "【管理员】",
-                "· /rcon <进化|飞升> [地图名] <命令> → 执行 RCON 命令",
-                "· /加点 <进化|飞升> <ID> <点数> → 加 ArkShop 点数",
-                "· /代加点 <进化|飞升> <点数> @群友… → 给已绑定群友加点",
-                "· /测试推送 → 测试主动消息通道 ｜ /更新地址 → 刷新直连地址缓存",
-                "· /关联 列表 → 查看身份关联 ｜ /关联 解除 @某人 → 强制解除他人关联",
+                "【最常用】",
+                "· /在线玩家 [进化|飞升] [地图名] → 在线人数 + 部落名",
+                "· /进化 [地图名] ｜ /飞升 [地图名] → 服务器状态",
+                "· /签到 → 每日领点数 ｜ /查绑定 → 查看我的绑定",
+                "",
+                "【完整清单】直接发下面指令看分类：",
+                "· /帮助 查询 → 在线玩家 / 状态 / 倍率 / 直连",
+                "· /帮助 绑定 → 绑定 / 开绑 / 解绑 / 关联 / 签到",
             ]
-        lines += [
-            "",
-            "· /我是谁 → 查看自己的平台ID / 群标识（配置用）",
-            "· /帮助 → 显示本帮助",
-            "· 🔒 你的聊天ID、SteamID/EOS 只在私聊完整显示，群/频道里一律打码",
-        ]
-        if has_onebot:
-            lines += ["· 游戏公屏：qqbind <QQ号> → 未绑过时可直接绑定（OneBot 渠道）"]
+            if show_admin_help:
+                lines.append("· /帮助 管理 → RCON / 加点 / 代加点 / 测试推送 / 关联管理")
+            if is_kook and in_group:
+                lines += ["", "【本频道】直接发指令即可，不用 @机器人"]
+            elif in_group:
+                lines += ["", "【群里怎么用】先 @机器人 再发指令",
+                          "· 绑定/签到建议在私聊完成；群与私聊身份不同时用 /关联 打通"]
+                if not has_onebot:
+                    lines.append("· 绑定主键是 openid（官方机器人拿不到真实 QQ 号）")
+            else:
+                lines += ["", "【私聊】直接发指令即可"]
+            if self.config.get('bridge_enabled', False) and len(self._broadcast_targets()) > 1:
+                labels = "、".join(t['label'] or t['platform'] for t in self._broadcast_targets())
+                lines += ["", f"【消息互通】{labels} 之间互通；游戏内聊天会同时发到这些位置"]
+            lines += ["", "· /我是谁 → 查看自己的平台ID / 群标识 ｜ 🔒 群里 ID 一律打码"]
         invite = self._invite_line(platform_name)
         if invite:
             lines += ["", invite]
@@ -2457,8 +2467,10 @@ class ZeroARKPlugin(Star):
             return
         group = self._event_group_id(event)
         show_admin = self._is_owner(event) and (not group or str(group) in self._admin_channels())
+        parts = event.message_str.strip().split(None, 1)
+        section = parts[1].strip() if len(parts) > 1 else ''
         yield event.plain_result("\n".join(
-            self._help_lines(show_admin, self._event_platform(event), bool(group))) + self.footer)
+            self._help_lines(show_admin, self._event_platform(event), bool(group), section)) + self.footer)
 
     @filter.command("帮助")
     async def help_command_cn(self, event: AstrMessageEvent):

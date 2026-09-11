@@ -221,6 +221,8 @@ DEFAULT_CONFIG = {
     "notify_group": 0,                        # 通知群号（int），改成你的群号
     "whitelist_groups": [],                   # 允许使用指令的群白名单；留空=不限制
     "owner_qq": "",                           # 服主 QQ（/rcon、/加点、/代加点 等管理命令校验）
+    "owner_ids": [],                          # 额外主人 ID（跨平台：QQ openid / KOOK 用户ID），与 owner_qq 合并生效
+    "admin_channels": [],                     # 这些群/频道里，主人也能看到完整帮助（含管理指令段）
     "check_interval_minutes": 10,             # 地址/倍率定时刷新间隔（分钟）
     "official_site": "https://example.com/",  # 官网，显示在部分消息底部
     "rcon_timeout": 5.0,
@@ -442,7 +444,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.4.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.5.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1818,17 +1820,52 @@ class ZeroARKPlugin(Star):
             pass
         return None
 
+    def _owner_ids(self) -> set:
+        """主人 ID 集合：owner_qq + owner_ids（跨平台混用，QQ openid / KOOK 用户ID 均可）"""
+        ids = set()
+        main = str(self.config.get('owner_qq', '') or '').strip()
+        if main:
+            ids.add(main)
+        extra = self.config.get('owner_ids') or []
+        if isinstance(extra, (list, tuple)):
+            for x in extra:
+                s = str(x or '').strip()
+                if s:
+                    ids.add(s)
+        return ids
+
+    def _is_owner(self, event) -> bool:
+        """判断发送者是否为主人（兼容各适配器的 ID 取法与 session 兜底）"""
+        ids = self._owner_ids()
+        if not ids:
+            return False
+        cands = []
+        try:
+            sid = str(event.get_sender_id() or '')
+            if sid:
+                cands.append(sid)
+        except Exception:
+            pass
+        try:
+            for tok in re.split(r'[_\s]', str(event.get_session_id() or '')):
+                if tok.isdigit() and len(tok) >= 5:
+                    cands.append(tok)
+        except Exception:
+            pass
+        return any(c in ids for c in cands)
+
+    def _admin_channels(self) -> set:
+        """允许主人看到完整帮助的群/频道标识集合"""
+        raw = self.config.get('admin_channels') or []
+        if not isinstance(raw, (list, tuple)):
+            return set()
+        return {str(x).strip() for x in raw if str(x).strip()}
+
     def _check_whitelist(self, event: AstrMessageEvent) -> bool:
         """白名单检查：主人（owner_qq）任何场景放行；私聊放行；群聊按白名单"""
         # 主人在任何场景（含私聊）都可使用全部指令
-        owner_qq = str(self.config.get('owner_qq', '') or '')
-        if owner_qq:
-            try:
-                sender_id = event.get_sender_id()
-                if sender_id and str(sender_id) == owner_qq:
-                    return True
-            except Exception:
-                pass
+        if self._is_owner(event):
+            return True
 
         if hasattr(event, "session_id") and "kook" in event.session_id.lower():
             return True
@@ -1864,8 +1901,7 @@ class ZeroARKPlugin(Star):
                 parts = sid.split('_')
                 if len(parts) > 1 and parts[1].isdigit():
                     sender_id = parts[1]
-        owner_qq = str(self.config.get('owner_qq', ''))
-        if sender_id != owner_qq:
+        if not self._is_owner(event):
             return
         parts = event.message_str.strip().split()
         if len(parts) < 2:
@@ -1958,8 +1994,7 @@ class ZeroARKPlugin(Star):
                 sp = sid.split('_')
                 if len(sp) > 1 and sp[1].isdigit():
                     sender_id = sp[1]
-        owner_qq = str(self.config.get('owner_qq', ''))
-        if str(sender_id) != owner_qq:
+        if not self._is_owner(event):
             return
         parts = event.message_str.strip().split()
         if len(parts) < 4:
@@ -2102,7 +2137,7 @@ class ZeroARKPlugin(Star):
             yield event.plain_result("此指令用于群聊：/代加点 <进化|飞升> <点数> @群友…")
             return
         qq = self._sender_qq(event)
-        if not qq or qq != str(self.config.get('owner_qq', '')):
+        if not qq or not self._is_owner(event):
             return
         text = re.sub(r'\[CQ:[^\]]*\]', '', str(event.message_str or ''))
         tokens = text.split()
@@ -2227,7 +2262,7 @@ class ZeroARKPlugin(Star):
             f"· member_openid：{raw_member or '（无）'}",
             f"· user_openid：{raw_user or '（无）'}",
             "",
-            "对照填写：你的ID → owner_qq；群标识 → whitelist_groups / notify_group；",
+            "对照填写：你的ID → owner_qq / owner_ids；群标识 → whitelist_groups / notify_group / admin_channels；",
             "玩家绑定主键即「你的ID」（QQ 官方机器人下为 openid，无法换成真实 QQ 号）。",
         ]
         yield event.plain_result("\n".join(lines))
@@ -2237,7 +2272,7 @@ class ZeroARKPlugin(Star):
         if not self._check_whitelist(event):
             return
         qq = self._sender_qq(event)
-        if not qq or qq != str(self.config.get('owner_qq', '')):
+        if not qq or not self._is_owner(event):
             return
         targets = self._broadcast_targets()
         if not targets:
@@ -2272,7 +2307,7 @@ class ZeroARKPlugin(Star):
         async for r in self._whoami_cmd(event):
             yield r
 
-    def _help_lines(self, is_owner_private: bool, platform_name: str = "") -> list:
+    def _help_lines(self, show_admin_help: bool, platform_name: str = "") -> list:
         """构建帮助文本（分组清晰；Owner 私聊额外显示管理指令）"""
         sc = self._signin_cfg()
         ase_pts = sc.get('ase_points', 50)
@@ -2306,7 +2341,7 @@ class ZeroARKPlugin(Star):
             "· qqbind <QQ号> → 仅 OneBot 渠道可用；QQ 官方机器人下请用上面的验证码流程",
             "· 商店指令（/points、/shop、/buy）由游戏内 ArkShop 提供，机器人不处理",
         ]
-        if is_owner_private:
+        if show_admin_help:
             lines += [
                 "",
                 "【管理员（仅 Owner 私聊）】",
@@ -2338,19 +2373,9 @@ class ZeroARKPlugin(Star):
     async def help_command(self, event: AstrMessageEvent):
         if not self._check_whitelist(event):
             return
-        owner_qq = str(self.config.get('owner_qq', ''))
-        sender_id = event.get_sender_id()
-        if not sender_id:
-            try:
-                sid = event.get_session_id()
-                if sid and '_' in sid:
-                    sp = sid.split('_')
-                    if len(sp) > 1 and sp[1].isdigit():
-                        sender_id = sp[1]
-            except Exception:
-                pass
-        is_owner_private = bool(sender_id) and str(sender_id) == owner_qq and not self._event_group_id(event)
-        yield event.plain_result("\n".join(self._help_lines(is_owner_private, self._event_platform(event))) + self.footer)
+        group = self._event_group_id(event)
+        show_admin = self._is_owner(event) and (not group or str(group) in self._admin_channels())
+        yield event.plain_result("\n".join(self._help_lines(show_admin, self._event_platform(event))) + self.footer)
 
     @filter.command("帮助")
     async def help_command_cn(self, event: AstrMessageEvent):

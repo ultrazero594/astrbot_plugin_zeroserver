@@ -2,6 +2,8 @@
   "notify_group": 0,
   "whitelist_groups": [],
   "owner_qq": "",
+  "owner_ids": [],
+  "admin_channels": [],
   "check_interval_minutes": 10,
   "official_site": "https://example.com/",
   "rcon_timeout": 5.0,

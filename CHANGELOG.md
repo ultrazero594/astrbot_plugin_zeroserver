@@ -2,6 +2,20 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.5.0] - 2026-09-11
+
+### 新增 / Added
+- **多主人（跨平台）**：新增 `owner_ids` 列表，与 `owner_qq` 合并生效——同一个服主在 QQ（openid/QQ号）和 KOOK（用户ID）下都能使用 `/rcon`、`/加点`、`/代加点`、`/测试推送` 等管理指令
+  - **Multiple owners**: new `owner_ids` list merged with `owner_qq`, so one owner works across platforms (QQ openid/QQ number and KOOK user id)
+- **管理员频道**：新增 `admin_channels`（群/频道标识列表）。在这些群/频道里，主人发 `/帮助` 能看到完整版（含【管理员】指令段），不必私聊
+  - **Admin channels**: new `admin_channels`. Inside these groups/channels the owner sees the full `/help` including the admin section
+- 新增内部辅助 `_is_owner()` / `_owner_ids()` / `_admin_channels()`，所有管理指令的主人校验统一走这里（原先各处各写一遍 ID 比较）
+  - New helpers `_is_owner()` / `_owner_ids()` / `_admin_channels()`; all owner checks now go through them
+
+### 变更 / Changed
+- `_help_lines()` 的参数由 `is_owner_private` 改为语义更准的 `show_admin_help`
+  - `_help_lines()`'s parameter renamed to `show_admin_help`
+
 ## [1.4.1] - 2026-09-11
 
 ### 新增 / Added

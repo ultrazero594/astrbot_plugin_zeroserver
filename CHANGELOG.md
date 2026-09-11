@@ -2,6 +2,18 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.13.3] - 2026-09-12
+
+### 修复 / Fixed
+- **修复 `metadata.yaml` 的无效 YAML**：第 4 行被写成了 `version: version: "1.11.0"`（从 v1.11.0 起一直存在，是脚本里用局部字符串替换版本号导致的），已改回 `version: "1.13.3"`
+  - Fixed invalid YAML in `metadata.yaml`: line 4 was `version: version: "1.11.0"` (present since v1.11.0, caused by a partial-string version replacement in a script)
+- 私聊发码失败时的提示更具体：一是"你还没加机器人为好友"，二是"QQ 开放平台 → 好友（私聊）→ 允许被其他 QQ 用户添加使用"（该开关关闭时，普通玩家收不到私聊验证码，开绑/换绑都做不了）
+  - Clearer hint when the DM fails: (1) add the bot as a friend first, (2) enable “allow other QQ users to add the bot” on the open platform — with it off, regular users never receive the verification code
+
+### 优化 / Changed
+- 「绑定三步」第一步改为「先在 QQ 里添加机器人为好友」；「直接发 ID 绑定」一行注明**无需私聊**
+  - The 3-step guide now starts with "add the bot as a friend first", and the direct-ID binding line notes it needs no DM
+
 ## [1.13.2] - 2026-09-11
 
 ### 优化 / Changed

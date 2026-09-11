@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.13.2] - 2026-09-11
+
+### 优化 / Changed
+- **未绑定提示改成「绑定三步」**：`/签到` `/查绑定` 在未绑定时的回复，从一句话改成编号步骤（① 保持角色在线 → ② 发 `/绑定 进化 开绑` → ③ 游戏公屏 `zsbind <验证码>`），并说明「也可直接发 ID 绑定」以及「老玩家走这三步会自动接回原账号」
+  - The not-bound reply now shows a numbered 3-step binding guide (keep the character online → `/绑定 进化 开绑` → `zsbind <code>` in game), mentions direct-ID binding, and notes that legacy rows are re-attached automatically
+
 ## [1.13.1] - 2026-09-11
 
 ### 修复 / Fixed

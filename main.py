@@ -35,10 +35,14 @@ FOOTER_ASE = "\n\n"
 FOOTER_ASA = "\n\n"
 
 # ======================== 旧绑定（OneBot 时代 QQ 号主键）引导文案 ========================
-LEGACY_BIND_HINT = (
-    "\n\n👤 老玩家提示：官方机器人拿不到真实 QQ 号，以前用 QQ 号绑定的记录已经失效，需要重新绑定一次。\n"
-    "做法：QQ 里发 /绑定 进化|飞升 开绑 拿到验证码 → 在游戏公屏（保持你的角色在线）发 zsbind <验证码>，"
-    "系统会自动接回你原来的账号。")
+BIND_GUIDE = (
+    "\n\n📝 绑定三步（推荐，可换绑、也能自动接回旧账号）：\n"
+    "1️⃣ 保持你的游戏角色在线\n"
+    "2️⃣ 发：/绑定 进化 开绑（飞升就发 /绑定 飞升 开绑）\n"
+    "3️⃣ 机器人私聊给你验证码 → 在游戏公屏发：zsbind <验证码>\n"
+    "也可以直接发 ID 绑定：/绑定 进化 <SteamID64> ｜ /绑定 飞升 <EOS 32位hex>\n"
+    "🇶 老玩家注意：以前用 QQ 号绑定的记录已失效，走上面三步会自动接回你原来的账号。")
+LEGACY_BIND_HINT = BIND_GUIDE   # 兼容旧引用
 
 # ======================== 地图名称中英文映射（进化ASE/飞升ASA 分开；英文只保留地址表中出现的） ========================
 MAP_NAME_CN = {
@@ -464,7 +468,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.13.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.13.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -3850,8 +3854,7 @@ class ZeroARKPlugin(Star):
             yield event.plain_result(f"❌ 查询失败: {e}")
             return
         if not binds:
-            yield event.plain_result("ℹ️ 你还没有绑定任何游戏。\n用 /绑定 进化 <SteamID64> 或 /绑定 飞升 <EOS32位hex> 绑定"
-                                     + LEGACY_BIND_HINT)
+            yield event.plain_result("ℹ️ 你还没有绑定任何游戏账号。" + BIND_GUIDE)
             return
         public = bool(self._event_group_id(event))   # 公共区域打码，私聊给完整 ID
         lines = [f"📋 {'你的' if public else ''}绑定（{self._mask_id(qq) if public else qq}）："]
@@ -3882,16 +3885,9 @@ class ZeroARKPlugin(Star):
             return
         if not binds:
             if in_group:
-                yield event.plain_result(
-                    "ℹ️ 群里没有查到你的绑定。\n"
-                    "请**私聊机器人**完成绑定与签到：\n"
-                    "· /绑定 进化 <SteamID64>  或  /绑定 飞升 <EOS 32位hex>\n"
-                    "· 之后在私聊发 /签到 即可\n"
-                    "（群与私聊的用户标识可能不同，绑定/签到建议都在私聊完成；两边签到记录共用，同一天不会重复发点）"
-                    + LEGACY_BIND_HINT)
+                yield event.plain_result("ℹ️ 群里没有查到你的绑定，绑定后就能每天领点数。" + BIND_GUIDE)
             else:
-                yield event.plain_result("ℹ️ 请先绑定游戏ID再签到：\n/bind 或 /绑定 进化 <SteamID64>\n/bind 或 /绑定 飞升 <EOS 32位hex>"
-                                         + LEGACY_BIND_HINT)
+                yield event.plain_result("ℹ️ 请先绑定游戏账号再签到。" + BIND_GUIDE)
             return
         msgs = []
         async with self._signin_lock:

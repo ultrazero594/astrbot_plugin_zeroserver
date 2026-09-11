@@ -33,6 +33,12 @@ ARKSTATUS_API_BASE = "https://arkstatus.com/api/v1/servers"
 FOOTER_ASE = "\n\n"
 FOOTER_ASA = "\n\n"
 
+# ======================== 旧绑定（OneBot 时代 QQ 号主键）引导文案 ========================
+LEGACY_BIND_HINT = (
+    "\n\n👤 老玩家提示：官方机器人拿不到真实 QQ 号，以前用 QQ 号绑定的记录已经失效，需要重新绑定一次。\n"
+    "做法：QQ 里发 /绑定 进化|飞升 开绑 拿到验证码 → 在游戏公屏（保持你的角色在线）发 zsbind <验证码>，"
+    "系统会自动接回你原来的账号。")
+
 # ======================== 地图名称中英文映射（进化ASE/飞升ASA 分开；英文只保留地址表中出现的） ========================
 MAP_NAME_CN = {
     "ASE": {
@@ -428,7 +434,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.2.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.3.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2500,6 +2506,19 @@ class ZeroARKPlugin(Star):
             if not await _col_type('qq_bind', 'platform'):
                 await cur.execute("ALTER TABLE qq_bind ADD COLUMN platform VARCHAR(16) NOT NULL DEFAULT '' AFTER qq")
                 logger.info("🔧 qq_bind 已补充 platform 列")
+            # 仅当运行在 QQ 官方机器人下：把 OneBot 时代的旧绑定（纯数字 QQ 号主键）标记为 legacy。
+            # 这些主键在 openid 体系下永远匹配不到，玩家需重新走一次"开绑 + 游戏内 zsbind"，
+            # 届时按游戏ID自动接回原账号（见 _claim_legacy_binding）。
+            if self._platform_tag() == 'qq_official':
+                await cur.execute(
+                    "UPDATE qq_bind SET platform='legacy' "
+                    "WHERE (platform IS NULL OR platform='') AND qq REGEXP '^[0-9]{5,12}$'")
+                if cur.rowcount:
+                    logger.info(f"🔖 已标记 {cur.rowcount} 条旧 QQ 号绑定为 legacy（可自动迁移）")
+                await cur.execute("SELECT COUNT(*) FROM qq_bind WHERE platform='legacy'")
+                _legacy_n = (await cur.fetchone())[0] or 0
+                if _legacy_n:
+                    logger.info(f"ℹ️ qq_bind 仍有 {_legacy_n} 条旧 QQ 号绑定(legacy)，这些玩家需重新绑定一次")
             await conn.commit()
             await cur.close()
             logger.info("✅ qq 数据库表结构已就绪 (qq_bind / qq_checkin)")
@@ -2564,6 +2583,37 @@ class ZeroARKPlugin(Star):
                 (str(qq), platform or self._platform_tag(), game, pid, pname, pmap))
             await conn.commit()
             await cur.close()
+        finally:
+            conn.close()
+
+    async def _claim_legacy_binding(self, qq, game, pid) -> dict:
+        """重新绑定时若当前游戏ID命中一条 legacy 旧绑定（OneBot 时代的 QQ 号主键），
+        删除旧行、由本次绑定接替（同一游戏ID，绑定数据不丢），返回被迁移的旧行。
+        只在带游戏内身份证明的路径（zsbind / qqbind）调用。"""
+        try:
+            conn = await self._qq_db()
+        except Exception as e:
+            logger.debug(f"legacy 绑定迁移跳过: {e}")
+            return {}
+        try:
+            cur = await conn.cursor(aiomysql.DictCursor)
+            await cur.execute(
+                "SELECT qq, player_id FROM qq_bind "
+                "WHERE game=%s AND player_id=%s AND platform='legacy' LIMIT 1",
+                (game, str(pid)))
+            row = await cur.fetchone()
+            if not row or str(row.get('qq')) == str(qq):
+                await cur.close()
+                return {}
+            await cur.execute("DELETE FROM qq_bind WHERE qq=%s AND game=%s AND platform='legacy'",
+                              (str(row.get('qq')), game))
+            await conn.commit()
+            await cur.close()
+            logger.info(f"🔁 旧绑定已迁移: 旧QQ={row.get('qq')} → 新标识={str(qq)[:12]}… ({game}, {pid})")
+            return dict(row)
+        except Exception as e:
+            logger.warning(f"legacy 绑定迁移失败: {e}")
+            return {}
         finally:
             conn.close()
 
@@ -2910,6 +2960,7 @@ class ZeroARKPlugin(Star):
         try:
             existing = (await self._get_bindings(qq)).get(game)
             await self._ensure_qq_tables()
+            migrated = await self._claim_legacy_binding(qq, game, pid)
             await self._bind_upsert(qq, game, pid, sender, pmap)
         except Exception as e:
             logger.error(f"游戏内绑定写入失败: qq={qq} game={game} pid={pid}: {e}")
@@ -2922,10 +2973,12 @@ class ZeroARKPlugin(Star):
             verb = "绑定成功"
         points = int(self._signin_cfg().get('ase_points' if game == 'ASE' else 'asa_points',
                                              50 if game == 'ASE' else 50))
+        legacy_line = (f"\n🔁 已接回你原「{migrated.get('qq')}」的绑定记录（同一游戏账号，数据保留）。"
+                       if migrated else "")
         await self._notify_bind_result(
             qq,
             f"✅ {self._game_cn(game)}游戏内{verb}：QQ={qq} ↔ 角色「{sender}」（{pmap}），ID {pid}（来源：{source}）\n"
-            f"现在可用 /签到 每日领取 {points} 点。")
+            f"现在可用 /签到 每日领取 {points} 点。{legacy_line}")
 
     def _gen_bind_code(self) -> str:
         now = time.time()
@@ -3033,7 +3086,8 @@ class ZeroARKPlugin(Star):
             yield event.plain_result(f"❌ 查询失败: {e}")
             return
         if not binds:
-            yield event.plain_result("ℹ️ 你还没有绑定任何游戏。\n用 /绑定 进化 <SteamID64> 或 /绑定 飞升 <EOS32位hex> 绑定")
+            yield event.plain_result("ℹ️ 你还没有绑定任何游戏。\n用 /绑定 进化 <SteamID64> 或 /绑定 飞升 <EOS32位hex> 绑定"
+                                     + LEGACY_BIND_HINT)
             return
         lines = [f"📋 QQ={qq} 的绑定："]
         for game in ("ASE", "ASA"):
@@ -3064,9 +3118,11 @@ class ZeroARKPlugin(Star):
                     "请**私聊机器人**完成绑定与签到：\n"
                     "· /绑定 进化 <SteamID64>  或  /绑定 飞升 <EOS 32位hex>\n"
                     "· 之后在私聊发 /签到 即可\n"
-                    "（群与私聊的用户标识可能不同，绑定/签到建议都在私聊完成；两边签到记录共用，同一天不会重复发点）")
+                    "（群与私聊的用户标识可能不同，绑定/签到建议都在私聊完成；两边签到记录共用，同一天不会重复发点）"
+                    + LEGACY_BIND_HINT)
             else:
-                yield event.plain_result("ℹ️ 请先绑定游戏ID再签到：\n/bind 或 /绑定 进化 <SteamID64>\n/bind 或 /绑定 飞升 <EOS 32位hex>")
+                yield event.plain_result("ℹ️ 请先绑定游戏ID再签到：\n/bind 或 /绑定 进化 <SteamID64>\n/bind 或 /绑定 飞升 <EOS 32位hex>"
+                                         + LEGACY_BIND_HINT)
             return
         msgs = []
         async with self._signin_lock:

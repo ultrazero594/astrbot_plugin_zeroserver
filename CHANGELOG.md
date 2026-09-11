@@ -2,6 +2,20 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.3.0] - 2026-09-11
+
+### 新增 / Added
+- **旧绑定（OneBot 时代 QQ 号主键）自动迁移**：启动时把 `platform` 为空且主键是纯数字 QQ 号的绑定行标记为 `legacy`（仅在 QQ 官方机器人下执行，OneBot 部署不受影响），并打印剩余条数
+  - **Automatic migration of legacy bindings**: rows whose key is a numeric QQ number (created before the QQ-official migration) are tagged `legacy` on startup — only when the QQ official adapter is active; OneBot deployments are unaffected
+- 新增 `_claim_legacy_binding()`：玩家重新走「开绑 + 游戏内 `zsbind`」（或游戏公屏 `qqbind`）时，若其游戏 ID 命中一条 `legacy` 旧行，则自动接回原绑定记录并私聊告知「已接回你原「旧QQ号」的绑定记录」
+  - New `_claim_legacy_binding()`: when a player re-binds via the in-game verified flow and the game ID matches a `legacy` row, the old record is adopted automatically and the player is notified
+- `/查绑定`、`/签到` 在「未绑定」时追加老玩家引导：官方机器人拿不到真实 QQ 号，旧绑定需重新走一次开绑流程
+  - `/mybind` and `/signin` now append a legacy-user hint when nothing is bound
+
+### 说明 / Notes
+- 旧 QQ 号主键在 openid 体系下无法直接命中，这 4 条记录不会自动生效；玩家完成一次游戏内验证绑定后即自动接回，无需人工改库
+  - Legacy numeric keys can never match openids; affected players just need to complete one in-game verified binding and their record is reattached automatically
+
 ## [1.2.2] - 2026-09-11
 
 ### 修复 / Fixed

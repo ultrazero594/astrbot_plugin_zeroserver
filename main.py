@@ -184,7 +184,7 @@ def _parse_dynamic_ini(content: str) -> dict:
     return result
 
 # ======================== 游戏内绑定聊天指令（玩家在游戏公屏输入） ========================
-RELAY_SKIP_MARKERS = ("[飞升]", "[进化]", "[QQ群]", "[跨服]")
+RELAY_SKIP_MARKERS = ("[飞升]", "[进化]", "[QQ群]", "[KOOK]", "[跨服]", "🔀")
 QQBIND_RE = re.compile(r'^\s*qqbind\s+(\d{5,12})\s*$', re.IGNORECASE)
 ZSBIND_RE = re.compile(r'^\s*zsbind\s+([a-z0-9]{4,12})\s*$', re.IGNORECASE)
 
@@ -231,6 +231,12 @@ DEFAULT_CONFIG = {
     "db_sources": [],                         # 游戏聊天库源（见 README 数据库一节）
     "qq_to_game_enabled": True,               # QQ 群消息转发进游戏（RCON serverchat）
     "qq_forward_prefix": "💬 [QQ群]",
+    "kook_forward_prefix": "💬 [KOOK]",       # KOOK 频道消息转发进游戏时的前缀
+    # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
+    # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
+    "broadcast_targets": [],
+    # 群间互通：把某个目标群/频道的消息同步到其它目标（QQ群 ↔ KOOK 频道），带 🔀 标记防循环
+    "bridge_enabled": False,
     "rcon_targets": [],                       # 手动 RCON 目标（也可由 rcon_html_url 自动构建）
     "cache_mirror_url": "",                   # 【抓取】缓存更新检测的目录列表页
     "cache_check_interval_minutes": 10,
@@ -402,7 +408,6 @@ class CrossChatForwarder:
         prefix = "[飞升]" if src_id == 'asa_chat' else "[进化]" if src_id == 'ase_chat' else "[跨服]"
         # 目标游戏版本：asa_chat(飞升)的消息 -> 转发到 ASE(进化)；ase_chat(进化)的消息 -> 转发到 ASA(飞升)
         target_ver = "ASE" if src_id == 'asa_chat' else "ASA" if src_id == 'ase_chat' else None
-        group_id = self.plugin.config.get('notify_group')
         for msg in messages:
             server = msg.get('Map', '未知地图')
             player = msg.get('Sender', '未知玩家') or '匿名'
@@ -410,12 +415,11 @@ class CrossChatForwarder:
             if not content:
                 continue
             chat_text = f"{prefix}【{server}】{player}: {content}"
-            # 1) 发到 QQ 群
-            if group_id:
-                logger.info(f"📤 转发到群 {group_id}: {chat_text[:50]}...")
-                ok = await self.plugin._send_group_msg(group_id, chat_text)
-                if not ok:
-                    logger.error(f"❌ 发送消息到群 {group_id} 失败")
+            # 1) 发到所有广播目标（QQ 群 + KOOK 频道等，双发）
+            logger.info(f"📤 转发到广播目标: {chat_text[:50]}...")
+            sent_n = await self.plugin._broadcast(chat_text)
+            if not sent_n:
+                logger.error("❌ 跨服聊天转发失败：没有任何目标发送成功")
             # 2) 转发到另一个游戏（RCON serverchat），实现 飞升↔进化 游戏内互转
             if target_ver:
                 await self._relay_to_game(target_ver, chat_text)
@@ -435,7 +439,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.3.3", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.4.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -714,7 +718,7 @@ class ZeroARKPlugin(Star):
             logger.error(f"检查倍率失败: {e}")
 
     async def _send_notify(self, message: str):
-        await self._send_group_msg(self.config['notify_group'], message)
+        await self._broadcast(message)
 
     # ======================== 平台发送层（OneBot + QQ 官方机器人） ========================
     def _platform_insts(self):
@@ -739,6 +743,72 @@ class ZeroARKPlugin(Star):
     def _platform_tag(self) -> str:
         """当前优先平台标识：qq_official（openid 体系）或 qq（OneBot QQ号体系）"""
         return 'qq_official' if self._find_platform_inst('qq_official') is not None else 'qq'
+
+    async def _wait_platform(self, platform_name: str, purpose: str = "", timeout: float = 20.0):
+        """等待指定平台适配器就绪；超时返回 None（避免后台任务无限等待）"""
+        deadline = time.time() + max(1.0, timeout)
+        while True:
+            inst = self._find_platform_inst(platform_name)
+            if inst is not None:
+                return inst
+            if time.time() >= deadline:
+                logger.warning(f"⚠️ 平台 {platform_name} 未就绪，跳过发送（{purpose}）")
+                return None
+            await asyncio.sleep(1.0)
+
+    def _broadcast_targets(self) -> list:
+        """主动消息目标列表 [{platform,id,label}]；未配置时回退为 notify_group（QQ群）"""
+        out = []
+        raw = self.config.get('broadcast_targets') or []
+        if isinstance(raw, list):
+            for t in raw:
+                if isinstance(t, dict) and t.get('id'):
+                    out.append({'platform': str(t.get('platform') or 'qq_official'),
+                                'id': str(t['id']),
+                                'label': str(t.get('label') or '')})
+        if not out:
+            g = self.config.get('notify_group')
+            if g:
+                out.append({'platform': 'qq_official', 'id': str(g), 'label': 'QQ群'})
+        return out
+
+    @staticmethod
+    def _target_key(platform: str, target_id) -> str:
+        return f"{str(platform or '').strip()}:{str(target_id).strip()}"
+
+    def _platform_label(self, platform_name: str) -> str:
+        for t in self._broadcast_targets():
+            if t['platform'] == platform_name and t.get('label'):
+                return t['label']
+        return {'qq_official': 'QQ群', 'aiocqhttp': 'QQ群', 'kook': 'KOOK'}.get(
+            platform_name or '', platform_name or '群')
+
+    async def _send_group_text(self, platform: str, group_id, message: str) -> bool:
+        """按平台名主动发送群/频道消息；platform 为空或 aiocqhttp 时走旧的 QQ 发送链"""
+        plat = (platform or '').strip()
+        if not plat or plat == 'aiocqhttp':
+            return await self._send_group_msg(group_id, message)
+        inst = await self._wait_platform(plat, f"群消息发送({str(group_id)[:12]})")
+        if inst is None:
+            return False
+        return await self._official_send(inst, 'group', str(group_id), message)
+
+    async def _broadcast(self, message: str, exclude: str = "") -> int:
+        """把消息发到所有 broadcast 目标（exclude 传 'platform:id' 可跳过来源，用于群间互通）"""
+        targets = self._broadcast_targets()
+        if not targets:
+            logger.warning("⚠️ 未配置 broadcast_targets / notify_group，主动消息无处可发")
+            return 0
+        sent = 0
+        for t in targets:
+            key = self._target_key(t['platform'], t['id'])
+            if exclude and key == exclude:
+                continue
+            if await self._send_group_text(t['platform'], t['id'], message):
+                sent += 1
+            else:
+                logger.error(f"❌ 主动消息发送失败（{t['label'] or key}）")
+        return sent
 
     def _find_aiocqhttp_client(self):
         """定位 aiocqhttp(OneBot) 适配器的 client；找不到返回 None"""
@@ -923,12 +993,9 @@ class ZeroARKPlugin(Star):
                     ok = await self._send_private_msg(notify_qq, msg)
                     if not ok:
                         logger.error(f"❌ 发送私聊更新通知到 {notify_qq} 失败")
-                    # 群通知
-                    notify_group = self.config.get('notify_group')
-                    if notify_group:
-                        ok = await self._send_group_msg(notify_group, msg)
-                        if not ok:
-                            logger.error(f"❌ 发送群更新通知到 {notify_group} 失败")
+                    # 群通知（QQ 群 + KOOK 频道等广播目标）
+                    if await self._broadcast(msg) == 0:
+                        logger.error("❌ 群更新通知发送失败：没有任何目标发送成功")
             except Exception as e:
                 logger.error(f"❌ 检查缓存更新失败: {e}")
             await asyncio.sleep(interval)
@@ -2153,12 +2220,18 @@ class ZeroARKPlugin(Star):
         qq = self._sender_qq(event)
         if not qq or qq != str(self.config.get('owner_qq', '')):
             return
-        group_id = self.config.get('notify_group')
-        if not group_id:
-            yield event.plain_result("❌ 未配置 notify_group")
+        targets = self._broadcast_targets()
+        if not targets:
+            yield event.plain_result("❌ 未配置 broadcast_targets / notify_group")
             return
-        ok = await self._send_group_msg(group_id, "🔔 测试推送：机器人主动消息通道正常（此消息为主动发送）")
-        yield event.plain_result("✅ 已发送测试推送到通知群" if ok else "❌ 测试推送失败，请看日志（可能触发了主动消息配额/权限限制）")
+        names = [t['label'] or self._target_key(t['platform'], t['id']) for t in targets]
+        sent_n = await self._broadcast("🔔 测试推送：机器人主动消息通道正常（此消息为主动发送）")
+        if sent_n >= len(targets):
+            yield event.plain_result(f"✅ 已向 {sent_n} 个目标发送测试推送：{'、'.join(names)}")
+        elif sent_n:
+            yield event.plain_result(f"⚠️ 仅 {sent_n}/{len(targets)} 个目标成功：{'、'.join(names)}\n请看日志确认失败的平台")
+        else:
+            yield event.plain_result("❌ 测试推送全部失败，请看日志（可能触发了主动消息配额/权限限制）")
 
     @filter.command("测试推送")
     async def test_push_cmd_cn(self, event: AstrMessageEvent):
@@ -2937,15 +3010,12 @@ class ZeroARKPlugin(Star):
             logger.debug(f"绑定结果私聊发送异常: {e}")
         gb = self.config.get('game_bind') or {}
         if str(gb.get('dm_fallback', '@')).lower() in ('@', 'on', 'true', '1'):
-            group_id = self.config.get('notify_group')
-            if group_id:
-                try:
-                    ok = await self._send_group_msg(group_id, f"📢 [QQ:{qq}] {text}")
-                    if ok:
-                        logger.info(f"绑定结果私聊失败，已在群 {group_id} 公告给 QQ {qq}")
-                        return True
-                except Exception as e:
-                    logger.debug(f"绑定结果群内兜底发送异常: {e}")
+            try:
+                if await self._broadcast(f"📢 [QQ:{qq}] {text}") > 0:
+                    logger.info(f"绑定结果私聊失败，已在广播目标公告给 QQ {qq}")
+                    return True
+            except Exception as e:
+                logger.debug(f"绑定结果群内兜底发送异常: {e}")
         logger.warning(f"绑定结果通知失败（私聊与群兜底均失败）: qq={qq}")
         return False
 
@@ -3236,12 +3306,27 @@ class ZeroARKPlugin(Star):
             return
         group_id = event.get_group_id()
         if not group_id:
-            return  # 仅群聊消息转发到游戏，私聊不转发
+            return  # 仅群聊/频道消息转发，私聊不转发
+        # 带转发标记的消息（游戏跨服转发 / 群间互通副本）不再二次转发，防循环
+        if any(mk in message for mk in RELAY_SKIP_MARKERS):
+            logger.debug(f"⏭️ 消息含转发标记，跳过转发: {message[:40]}")
+            return
         self._last_umo = event.unified_msg_origin
         if str(group_id) == str(self.config.get('notify_group')):
             self._notify_umo = event.unified_msg_origin
-        sender_name = event.get_sender_name() or "QQ用户"
-        logger.info(f"📨 收到群 {group_id} 消息: {sender_name}: {message}")
+        try:
+            platform_name = str(event.get_platform_name() or '')
+        except Exception:
+            platform_name = ''
+        sender_name = event.get_sender_name() or "用户"
+        src_key = self._target_key(platform_name, group_id)
+        targets = self._broadcast_targets()
+        in_targets = src_key in [self._target_key(t['platform'], t['id']) for t in targets]
+        logger.info(f"📨 收到 {platform_name or '未知平台'} {group_id} 消息: {sender_name}: {message}")
+        # 只处理配置里的互通目标：其它群/频道（谁都能拉机器人）不往游戏公屏刷消息
+        if targets and not in_targets:
+            logger.debug(f"⏭️ {src_key} 不在 broadcast_targets 内，不转发到游戏")
+            return
 
         # ---------- LLM 自动回复（可选） ----------
         llm_enabled = self.config.get('llm_enabled', False)
@@ -3272,11 +3357,19 @@ class ZeroARKPlugin(Star):
                 logger.info(f"🤖 LLM 回复触发: {message[:50]}...")
                 reply = await self._call_llm(message)
                 if reply:
-                    await self._send_group_msg(group_id, reply)
+                    await self._send_group_text(platform_name, group_id, reply)
                     logger.info(f"🤖 LLM 回复成功: {reply[:50]}...")
 
-        # ---------- QQ → 游戏（RCON）转发（并发，避免单服超时阻塞整条链路） ----------
-        prefix = self.config.get('qq_forward_prefix', '💬 [QQ群]')
+        # ---------- 群间互通：把本条消息同步到其它广播目标（QQ群 ↔ KOOK 频道） ----------
+        if self.config.get('bridge_enabled', False):
+            bridge_text = f"🔀 [{self._platform_label(platform_name)}] {sender_name}: {message}"
+            sent_n = await self._broadcast(bridge_text, exclude=src_key)
+            if sent_n:
+                logger.info(f"🔀 群间互通已转发到 {sent_n} 个目标")
+
+        # ---------- QQ/KOOK → 游戏（RCON）转发（并发，避免单服超时阻塞整条链路） ----------
+        prefix = (self.config.get('kook_forward_prefix', '💬 [KOOK]') if platform_name == 'kook'
+                  else self.config.get('qq_forward_prefix', '💬 [QQ群]'))
         game_message = f"{prefix} {sender_name}: {message}"
         targets = [t for t in self.rcon_targets if t.get('host') and t.get('port')]
         if not targets:

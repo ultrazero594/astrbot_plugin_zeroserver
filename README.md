@@ -167,6 +167,9 @@ astrbot_plugin_zeroserver/
 | `chat_check_interval` | `1.0` | 转发轮询秒数 |
 | `qq_to_game_enabled` | `true/false` | QQ 群消息是否通过 RCON 转发进游戏 |
 | `qq_forward_prefix` | `💬 [QQ群]` | 转进游戏时消息前缀（含该前缀的消息不会被再次转发，防循环） |
+| `kook_forward_prefix` | `💬 [KOOK]` | KOOK 频道消息转进游戏时的前缀 |
+| `broadcast_targets` | `[{platform,id,label}]` | 主动消息目标列表：跨服聊天转发、缓存更新通知、绑定结果公告、`/测试推送` 都发到这里。`platform` 支持 `qq_official` / `kook` / `aiocqhttp`，可同时配多个实现双平台广播；留空则回退到 `notify_group`。**只有列表里的群/频道会把消息转发进游戏** |
+| `bridge_enabled` | `true/false` | 群间互通：广播目标之间的消息互相同步（如 QQ群 ↔ KOOK 频道），转发副本带 `🔀` 标记不会被二次转发 |
 | `bind_db` | `{host,port,user,password,database}` | 绑定/签到记录库（默认库名 `qq`）。需要建表权限（也可由插件自动建表） |
 
 `db_sources` 示例（每游戏一套库或一个库、注意 `id` 命名）：

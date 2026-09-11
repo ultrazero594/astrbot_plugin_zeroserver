@@ -2,6 +2,26 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.4.0] - 2026-09-11
+
+### 新增 / Added
+- **多平台广播**：新增 `broadcast_targets` 配置（`[{platform,id,label}]`，platform 支持 `qq_official` / `kook` / `aiocqhttp`）。跨服聊天转发、缓存更新通知、绑定结果公告、`/测试推送`、LLM 回复统一走该列表——**同一份消息可同时发到 QQ 群和 KOOK 频道**；未配置时自动回退到 `notify_group`（向后兼容）
+  - **Multi-platform broadcast**: new `broadcast_targets` config. Cross-server chat relay, cache notifications, bind-result announcements, `/testpush` and LLM replies all fan out over this list, so one message can reach both a QQ group and a KOOK channel; falls back to `notify_group` when empty
+- **群间互通（QQ群 ↔ KOOK 频道）**：`bridge_enabled=true` 时，来自广播目标的消息会带 `🔀` 标记同步到其它目标，两个平台的群/频道互相可见
+  - **Cross-platform bridge**: with `bridge_enabled=true`, messages from a broadcast target are mirrored to the other targets with a `🔀` marker
+- 新增 `kook_forward_prefix`：KOOK 频道消息转发进游戏公屏时的前缀（默认 `💬 [KOOK]`）
+  - New `kook_forward_prefix` for messages relayed from KOOK into the game
+
+### 修复 / Fixed
+- 主动消息不再写死只发 QQ：此前 LLM 回复、通知、绑定结果在 KOOK 场景会发到 QQ 群
+  - Proactive messages are no longer hard-wired to QQ (previously an LLM reply or notification triggered from KOOK went to the QQ group)
+- 防循环标记扩充 `[KOOK]` 与 `🔀`，转发副本不会被二次转发（否则 QQ群 ↔ KOOK 会互相刷屏）
+  - Loop-guard markers now include `[KOOK]` and `🔀` so mirrored copies are never re-relayed
+
+### 变更 / Changed
+- 仅 `broadcast_targets` 里配置的群/频道会触发「转发到游戏公屏」，其它拉了机器人的群/频道不会再往 28 台服务器刷消息
+  - Only groups/channels listed in `broadcast_targets` relay messages into the game
+
 ## [1.3.3] - 2026-09-11
 
 ### 脱敏 / Sanitization

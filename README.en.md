@@ -168,6 +168,9 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 | `chat_check_interval` | Relay poll interval (seconds) |
 | `qq_to_game_enabled` | Forward QQ group messages into the game over RCON |
 | `qq_forward_prefix` | Prefix added when forwarding into the game; messages containing relay markers are skipped (loop protection) |
+| `kook_forward_prefix` | Prefix used when relaying KOOK channel messages into the game |
+| `broadcast_targets` | `[{platform,id,label}]` — proactive-message targets (chat relay, cache alerts, bind results, `/testpush`). `platform` may be `qq_official` / `kook` / `aiocqhttp`; list several to broadcast to multiple platforms. Falls back to `notify_group` when empty. **Only groups/channels listed here relay messages into the game** |
+| `bridge_enabled` | `true/false` — mirror messages between broadcast targets (e.g. QQ group ↔ KOOK channel); mirrored copies carry a `🔀` marker and are never re-relayed |
 | `bind_db` | `{host, port, user, password, database}` for bindings/check-ins (default database `qq`) |
 
 Example `db_sources`:

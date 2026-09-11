@@ -12,6 +12,12 @@
   "db_sources": [],
   "qq_to_game_enabled": true,
   "qq_forward_prefix": "💬 [QQ群]",
+  "kook_forward_prefix": "💬 [KOOK]",
+  "broadcast_targets": [
+    { "platform": "qq_official", "id": "你的QQ群openid或群号", "label": "QQ群" },
+    { "platform": "kook", "id": "你的KOOK频道ID", "label": "KOOK公共频道" }
+  ],
+  "bridge_enabled": false,
   "rcon_targets": [],
   "cache_mirror_url": "",
   "cache_check_interval_minutes": 10,

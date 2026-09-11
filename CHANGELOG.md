@@ -2,6 +2,17 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.18.0] - 2026-09-12
+
+### 新增 / Added
+- **KOOK 卡片按钮可用**（实验功能，配置 `kook_button_patch`，默认开）：AstrBot 的 KOOK 适配器只处理 `KMARKDOWN/CARD`，把 `SYSTEM(255)` 里除"角色更新"以外的系统通知（含 `extra.type="message_btn_click"`，即**卡片按钮点击**）当作未实现通知丢弃。插件现在给 `KookPlatformAdapter._on_received` 包一层补丁：识别到按钮点击后，取 `extra.body.value`（如 `/在线玩家`）**当作该用户发来的一条私聊消息注入 AstrBot 管道**，于是所有指令逻辑（白名单、参数、打码规则）原样复用，**结果私聊回点击者**、不刷频道
+  - **KOOK card buttons now work** (experimental, `kook_button_patch`): the upstream adapter drops `message_btn_click` system notifications; the plugin patches `_on_received` and re-injects the button value as a private message from the clicker, so all existing command logic applies and the reply goes to their DM
+- 实测依据：DEBUG 日志确认 KOOK 会下发该事件（`d.type=255`、`extra.type=message_btn_click`、`extra.body={value,user_id,target_id,user_info}`），只是 AstrBot 侧忽略
+
+### 说明 / Notes
+- 补丁是**宿主内部包装**，AstrBot 升级后若适配器实现改变可能失效；出问题把 `kook_button_patch` 设为 `false` 即可完全回退（不影响其它功能）
+- 卡片消息（type 10）可用 `action-group` 放最多 4 个按钮，`click:"return-val"` 的 `value` 就是点击后执行的内容
+
 ## [1.17.1] - 2026-09-12
 
 ### 优化 / Changed

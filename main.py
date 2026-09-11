@@ -263,6 +263,8 @@ DEFAULT_CONFIG = {
     "qq_keyboard_template_id": "",
     # 私聊发不出验证码时，是否允许把验证码直接发在群/频道里（QQ 个人认证收不到私聊，只能这样）
     "bind_code_public_fallback": True,
+    # KOOK 卡片按钮补丁（AstrBot 默认丢弃 message_btn_click；打开后点卡片按钮=执行对应指令）
+    "kook_button_patch": True,
     # 没装 ArkShop 插件的服务器（按名字子串匹配，不区分大小写）：加点、倍率刷新等 ArkShop 命令会跳过它们
     "arkshop_exclude_servers": ["Club", "海洋"],
     # 隐私：/在线玩家 名单里的游戏ID是否打码（默认打码，改为 false 则显示完整 ID）
@@ -476,7 +478,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.17.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.18.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -504,6 +506,12 @@ class ZeroARKPlugin(Star):
         self.chat_forwarder = CrossChatForwarder(self)
         self._background_tasks.append(asyncio.create_task(self.chat_forwarder.start()))
         logger.info("✅ 跨服转发任务已创建并保存引用")
+
+        # KOOK 卡片按钮补丁（AstrBot 默认把 message_btn_click 当未实现的系统通知忽略掉）
+        try:
+            self._install_kook_button_patch()
+        except Exception as e:
+            logger.debug(f"KOOK 按钮补丁装载失败: {e}")
 
         self.seen_cache_files = set()
         self._background_tasks.append(asyncio.create_task(self._check_cache_updates()))
@@ -1046,6 +1054,84 @@ class ZeroARKPlugin(Star):
                 except Exception as e:
                     logger.debug(f"适配器未就绪: {e}")
             await asyncio.sleep(2)
+
+    # ======================== KOOK 卡片按钮点击补丁 ========================
+    # AstrBot 的 KOOK 适配器只处理 KMARKDOWN/CARD，SYSTEM(255) 里仅实现"角色更新"，
+    # 「卡片按钮点击」(extra.type=message_btn_click) 会被当未实现通知丢弃 → 这里包一层补上。
+    def _install_kook_button_patch(self):
+        if not self.config.get('kook_button_patch', True):
+            logger.info("ℹ️ KOOK 按钮补丁已按配置关闭（kook_button_patch=false）")
+            return
+        try:
+            from astrbot.core.platform.sources.kook.kook_adapter import KookPlatformAdapter
+        except Exception as e:
+            logger.debug(f"KOOK 按钮补丁跳过（导入失败）: {e}")
+            return
+        if getattr(KookPlatformAdapter, '_zs_button_patched', False):
+            return
+        original = KookPlatformAdapter._on_received
+
+        async def _patched_on_received(adapter_self, event_data):
+            try:
+                extra = getattr(event_data, 'extra', None)
+                if str(getattr(extra, 'type', '') or '') == 'message_btn_click':
+                    body = getattr(extra, 'body', None)
+                    value = self._kook_body_field(body, 'value')
+                    uid = self._kook_body_field(body, 'user_id') or str(getattr(event_data, 'author_id', '') or '')
+                    nick = ''
+                    info = body.get('user_info') if isinstance(body, dict) else getattr(body, 'user_info', None)
+                    if isinstance(info, dict):
+                        nick = str(info.get('nickname') or info.get('username') or '')
+                    elif info is not None:
+                        nick = str(getattr(info, 'nickname', '') or getattr(info, 'username', '') or '')
+                    if value and uid:
+                        logger.info(f"🖱️ KOOK 按钮点击: {value!r} ← {str(uid)[:8]}…")
+                        asyncio.create_task(self._inject_kook_button_command(adapter_self, uid, nick, value))
+                        return
+            except Exception as e:
+                logger.debug(f"KOOK 按钮补丁处理异常: {e}")
+            return await original(adapter_self, event_data)
+
+        KookPlatformAdapter._on_received = _patched_on_received
+        KookPlatformAdapter._zs_button_patched = True
+        logger.info("🔧 已装载 KOOK 卡片按钮补丁（实验功能；kook_button_patch=false 可关闭）")
+
+    @staticmethod
+    def _kook_body_field(body, key: str) -> str:
+        """按钮点击事件的 extra.body 可能是 dict 也可能是模型对象"""
+        if body is None:
+            return ''
+        if isinstance(body, dict):
+            return str(body.get(key) or '')
+        return str(getattr(body, key, '') or '')
+
+    async def _inject_kook_button_command(self, adapter_inst, user_id, nickname, value: str):
+        """把按钮 value 当作「该用户私聊发来的一条消息」注入 AstrBot 管道，从而复用全部指令逻辑
+        （私聊语义：不要求唤醒前缀，指令结果私聊回点击者，公共区域不打码）"""
+        try:
+            from astrbot.api.platform import AstrBotMessage, MessageMember, MessageType
+            from astrbot.api.message_components import Plain
+        except Exception as e:
+            logger.error(f"❌ KOOK 按钮补丁：导入失败 {e}")
+            return
+        text = str(value).strip().lstrip('/').strip()
+        if not text:
+            return
+        abm = AstrBotMessage()
+        abm.type = MessageType.FRIEND_MESSAGE
+        abm.self_id = str(getattr(getattr(adapter_inst, 'client', None), 'bot_id', '') or '')
+        abm.session_id = str(user_id)
+        abm.group_id = ''
+        abm.sender = MessageMember(user_id=str(user_id), nickname=nickname or str(user_id))
+        abm.message_id = f"btnclick-{int(time.time())}"
+        abm.message = [Plain(text=text)]
+        abm.message_str = text
+        abm.raw_message = {"from": "kook_button_click", "value": value}
+        try:
+            await adapter_inst.handle_msg(abm)
+            logger.info(f"🖱️ KOOK 按钮指令已注入: {text!r}（user={str(user_id)[:8]}…）")
+        except Exception as e:
+            logger.error(f"❌ KOOK 按钮指令注入失败: {type(e).__name__}: {e}")
 
     async def _official_send(self, platform_inst, message_type: str, session_id: str, message: str) -> bool:
         """通过 QQ 官方机器人 send_by_session 主动发送（群=group_openid，私聊=user_openid）"""

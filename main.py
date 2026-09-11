@@ -453,7 +453,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.8.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.8.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2380,7 +2380,7 @@ class ZeroARKPlugin(Star):
             f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
             "· /查绑定 → 查看我的绑定 ｜ /解绑 <进化|飞升> → 解除绑定",
             "· /关联 → QQ ↔ KOOK 身份打通（同一游戏账号会自动关联，也可 /关联 开码 手动打通）",
-            "· QQ 与 KOOK 是两套身份：两边都要签到，就得各绑一次（同一个人的两侧不互通）",
+            "· 一边绑定后，另一个平台只要 /关联 打通就共用同一份绑定；绑同一游戏账号会自动关联",
         ]
         if is_kook and in_group:
             lines += [
@@ -2392,7 +2392,7 @@ class ZeroARKPlugin(Star):
             lines += [
                 "",
                 "【群里怎么用】先 @机器人 再发指令",
-                "· 绑定/签到建议都在私聊完成（群与私聊的用户ID可能不同）",
+                "· 绑定/签到建议在私聊完成；群与私聊身份不同时用 /关联 打通",
                 "· 绑定主键是 openid（官方机器人拿不到真实 QQ 号）" if not has_onebot else
                 "· 绑定主键是当前渠道的用户ID（OneBot 下是 QQ 号，官方机器人下是 openid）",
             ]

@@ -2,6 +2,14 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.8.1] - 2026-09-11
+
+### 修复 / Fixed
+- `/帮助` 里一行过时说明：「QQ 与 KOOK 是两套身份：两边都要签到，就得各绑一次（同一个人的两侧不互通）」——v1.7.0 起有 `/关联`、v1.8.0 起同游戏账号还会自动关联，这句已经和上一行矛盾且误导。改为「一边绑定后，另一个平台只要 /关联 打通就共用同一份绑定；绑同一游戏账号会自动关联」
+  - Removed a stale `/help` line that claimed the two platforms are fully independent ("you must bind twice"); it contradicted the `/link` line right above it since v1.7.0/v1.8.0
+- 「绑定/签到建议都在私聊完成（群与私聊的用户ID可能不同）」改为「绑定/签到建议在私聊完成；群与私聊身份不同时用 /关联 打通」
+  - The DM advice line now points to `/link` for cross-scene identities
+
 ## [1.8.0] - 2026-09-11
 
 ### 新增 / Added

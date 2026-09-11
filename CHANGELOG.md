@@ -2,6 +2,14 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.3.3] - 2026-09-11
+
+### 脱敏 / Sanitization
+- `/加点` 用法示例里的 ID 改为占位符（`<EOS 32位hex>` / `<SteamID64 17位数字>`），不再出现真实玩家 ID
+  - The `/addpoints` usage example no longer contains real player IDs (now placeholders)
+- `docs/qqofficial-commands.md`：移除真实群 `group_openid` 与真实官网域名，改为占位形式（`10F2****…` / `https://example.com/`）
+  - `docs/qqofficial-commands.md` no longer contains the real group openid or the real site domain
+
 ## [1.3.2] - 2026-09-11
 
 ### 优化 / Changed

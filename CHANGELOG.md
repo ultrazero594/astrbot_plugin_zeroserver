@@ -2,6 +2,13 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.15.0] - 2026-09-12
+
+### 新增 / Added
+- **编号菜单**：新增 `/菜单`（`/menu`）——QQ 个人认证下用不了消息按钮，改用「编号快捷入口」代替：发 `/1` 就是 `/在线玩家`、`/2` 状态、`/3` 签到、`/4` 查绑定、`/5 帮助 查询`、`/6 帮助 绑定`。带斜杠的短指令在群里本来就能唤醒，因此**零平台权限依赖、QQ/KOOK 通用**
+  - **Numbered menu**: `/menu` prints a numbered shortcut list; `/1`–`/6` dispatch to the corresponding internal commands (works in both QQ groups and KOOK, since a slash-prefixed message wakes the bot without needing any platform capability)
+- `/帮助` 总览加一行提示「懒得记指令？发 /菜单 用编号」
+
 ## [1.14.0] - 2026-09-12
 
 ### 变更 / Changed

@@ -469,7 +469,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.14.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.15.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2532,6 +2532,7 @@ class ZeroARKPlugin(Star):
                 "· /签到 ｜ /查绑定 ｜ /绑定 ｜ /解绑 ｜ /关联",
                 "· 完整清单：/帮助 查询 ｜ /帮助 绑定"
                 + (" ｜ /帮助 管理" if show_admin_help else ""),
+                "· 懒得记指令？发 /菜单 用编号（/1 就是在线玩家）",
             ]
             if is_kook and in_group:
                 lines.append("· 频道里直接发指令即可，不用 @机器人")
@@ -2724,6 +2725,96 @@ class ZeroARKPlugin(Star):
             return
         async for result in self.help_command(event):
             yield result
+
+    # ======================== 编号菜单（QQ 个人认证下没有消息按钮，用 /数字 代替） ========================
+    MENU_ITEMS = [
+        ("1", "在线玩家", "查在线人数 + 部落"),
+        ("2", "状态", "各服务器在线/离线"),
+        ("3", "签到", "每日领点数"),
+        ("4", "查绑定", "查看我的绑定"),
+        ("5", "帮助 查询", "查询类指令清单"),
+        ("6", "帮助 绑定", "绑定 / 换绑方式"),
+    ]
+
+    async def _menu_cmd(self, event):
+        """显示编号菜单；之后发 /1 ... /6 即可（带斜杠在群里也能唤醒指令）"""
+        if not self._check_whitelist(event):
+            return
+        lines = ["📋 菜单（直接发 /数字 就行）"]
+        for num, name, desc in self.MENU_ITEMS:
+            lines.append(f"/{num} {name} — {desc}")
+        lines.append("")
+        lines.append("💡 也可以直接发完整指令：/帮助 查询 ｜ /帮助 绑定")
+        yield event.plain_result("\n".join(lines))
+
+    @filter.command("菜单")
+    async def menu_cmd_cn(self, event: AstrMessageEvent):
+        async for r in self._menu_cmd(event):
+            yield r
+
+    @filter.command("menu")
+    async def menu_cmd_en(self, event: AstrMessageEvent):
+        async for r in self._menu_cmd(event):
+            yield r
+
+    async def _menu_pick(self, event, num: str):
+        """编号菜单分发：把 /N 映射到对应内部命令"""
+        if not self._check_whitelist(event):
+            return
+        if num == "1":
+            async for r in self._players_cmd(event):
+                yield r
+            return
+        if num == "2":
+            yield event.plain_result(self._status_summary())
+            return
+        if num == "3":
+            async for r in self._signin_cmd(event):
+                yield r
+            return
+        if num == "4":
+            async for r in self._mybind_cmd(event):
+                yield r
+            return
+        if num in ("5", "6"):
+            group = self._event_group_id(event)
+            show_admin = self._is_owner(event) and (not group or str(group) in self._admin_channels())
+            section = "查询" if num == "5" else "绑定"
+            yield event.plain_result("\n".join(
+                self._help_lines(show_admin, self._event_platform(event), bool(group), section)) + self.footer)
+            return
+        async for r in self._menu_cmd(event):
+            yield r
+
+    @filter.command("1")
+    async def menu_pick_1(self, event: AstrMessageEvent):
+        async for r in self._menu_pick(event, "1"):
+            yield r
+
+    @filter.command("2")
+    async def menu_pick_2(self, event: AstrMessageEvent):
+        async for r in self._menu_pick(event, "2"):
+            yield r
+
+    @filter.command("3")
+    async def menu_pick_3(self, event: AstrMessageEvent):
+        async for r in self._menu_pick(event, "3"):
+            yield r
+
+    @filter.command("4")
+    async def menu_pick_4(self, event: AstrMessageEvent):
+        async for r in self._menu_pick(event, "4"):
+            yield r
+
+    @filter.command("5")
+    async def menu_pick_5(self, event: AstrMessageEvent):
+        async for r in self._menu_pick(event, "5"):
+            yield r
+
+    @filter.command("6")
+    async def menu_pick_6(self, event: AstrMessageEvent):
+        async for r in self._menu_pick(event, "6"):
+            yield r
 
     async def _ase_query(self, event: AstrMessageEvent, lang: str = "zh"):
         if not self._check_whitelist(event):

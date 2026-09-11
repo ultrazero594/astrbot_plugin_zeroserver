@@ -23,6 +23,8 @@
   "invite_kook": "https://kook.vip/xxxx",
   "invite_qq": "123456789",
   "invite_on_reply": true,
+  "welcome_new_user": true,
+  "welcome_text": "👋 欢迎新朋友～发 /帮助 看我都会啥；/在线玩家 查在线，/签到 领点数",
   "qq_keyboard_template_id": "",
   "mask_player_ids": true,
   "rcon_targets": [],

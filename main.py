@@ -244,6 +244,9 @@ DEFAULT_CONFIG = {
     "invite_qq": "",
     # 是否在"所有回复"底部统一附带互推入口行（关闭则只在 /帮助 显示）
     "invite_on_reply": True,
+    # 新人首次互动时附一句欢迎引导（插件收不到"入群事件"，用首次交互替代）
+    "welcome_new_user": True,
+    "welcome_text": "👋 欢迎新朋友～发 /帮助 看我都会啥；/在线玩家 查在线，/签到 领点数",
     # QQ 开放平台申请到「消息按钮模板」后填模板 id（填了就用模板发送按钮，否则用内联按钮实验）
     "qq_keyboard_template_id": "",
     # 隐私：/在线玩家 名单里的游戏ID是否打码（默认打码，改为 false 则显示完整 ID）
@@ -457,7 +460,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.11.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.12.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -499,6 +502,7 @@ class ZeroARKPlugin(Star):
         # 游戏内绑定监听（玩家在游戏公屏输入 qqbind/zsbind）
         self._pending_codes = {}
         self._pending_links = {}
+        self._seen_users = None
         self._bind_chat_conns = {}
         self._background_tasks.append(asyncio.create_task(self._bind_watcher()))
 
@@ -2432,18 +2436,32 @@ class ZeroARKPlugin(Star):
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
-        """发送前钩子：给所有回复底部统一补上"对方社区"入口行（QQ 侧给 KOOK 邀请，KOOK 侧给 QQ 群）"""
+        """发送前钩子：①新人首次互动附一句欢迎引导；②所有回复底部补"对方社区"入口行"""
         try:
-            if not self.config.get('invite_on_reply', True):
-                return
-            line = self._invite_line(self._event_platform(event))
-            if not line:
-                return
             result = event.get_result()
             if result is None or not getattr(result, 'chain', None):
                 return
             from astrbot.api.message_components import Plain
             texts = [c for c in result.chain if isinstance(c, Plain) and getattr(c, 'text', '')]
+
+            # ① 新人首次互动欢迎（插件收不到"入群事件"，用首次交互代替）
+            if self.config.get('welcome_new_user', True) and not self._is_owner(event):
+                try:
+                    sid = str(event.get_sender_id() or '')
+                except Exception:
+                    sid = ''
+                if sid and self._mark_user_seen(self._target_key(self._event_platform(event), sid)):
+                    welcome = str(self.config.get('welcome_text') or '').strip()
+                    if welcome:
+                        result.chain.append(Plain("\n\n" + welcome))
+                        logger.info(f"👋 首次互动欢迎: {self._mask_id(sid)}")
+
+            # ② 互推入口行
+            if not self.config.get('invite_on_reply', True):
+                return
+            line = self._invite_line(self._event_platform(event))
+            if not line:
+                return
             if any(line in c.text for c in texts):
                 return                      # /帮助 等回复里已经带了，不重复
             footer = self.footer or ''
@@ -2453,7 +2471,37 @@ class ZeroARKPlugin(Star):
                     return
             result.chain.append(Plain("\n\n" + line))
         except Exception as e:
-            logger.debug(f"回复附加互推信息失败: {e}")
+            logger.debug(f"回复装饰失败: {e}")
+
+    def _welcome_file(self) -> str:
+        return os.path.join(os.path.dirname(__file__), "seen_users.json")
+
+    def _load_seen_users(self) -> set:
+        """已互动过的用户集合（持久化到 seen_users.json）"""
+        if getattr(self, '_seen_users', None) is not None:
+            return self._seen_users
+        self._seen_users = set()
+        try:
+            p = self._welcome_file()
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    self._seen_users = set(json.load(f) or [])
+        except Exception as e:
+            logger.debug(f"seen_users.json 读取失败: {e}")
+        return self._seen_users
+
+    def _mark_user_seen(self, key: str) -> bool:
+        """首次见到该用户返回 True（并落盘）"""
+        seen = self._load_seen_users()
+        if key in seen:
+            return False
+        seen.add(key)
+        try:
+            with open(self._welcome_file(), "w", encoding="utf-8") as f:
+                json.dump(sorted(seen), f, ensure_ascii=False)
+        except OSError as e:
+            logger.debug(f"seen_users.json 写入失败: {e}")
+        return True
 
     @staticmethod
     def _kb_payload(buttons: list) -> dict:

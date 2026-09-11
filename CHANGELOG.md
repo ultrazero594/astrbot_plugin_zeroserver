@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.12.0] - 2026-09-11
+
+### 新增 / Added
+- **新人首次互动欢迎**：插件拿不到"成员入群"事件（QQ 官方机器人不提供、KOOK 的加入事件也没被适配器转成插件事件），因此改用**首次交互**代替——某人在机器人回复里第一次出现时，回复底部附一句欢迎引导，并把该用户写入 `seen_users.json`，之后不再重复。配置：`welcome_new_user`（默认 `true`）、`welcome_text`（可自定义文案）；主人自己不受影响
+  - **First-interaction welcome**: since no member-join event exists on either platform, the first time a user gets a reply from the bot a welcome line is appended and the user is recorded in `seen_users.json` (never repeated). Config: `welcome_new_user`, `welcome_text`; the owner is skipped
+
 ## [1.11.2] - 2026-09-11
 
 ### 新增 / Added

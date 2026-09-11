@@ -428,7 +428,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.2.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.2.2", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1531,7 +1531,8 @@ class ZeroARKPlugin(Star):
                     bits = [f"部落：{tribe}" if tribe else "部落：未知（近期无聊天记录）"]
                     if lastmap:
                         bits.append(f"最近活动：{lastmap}")
-                    lines.append(f"  {i}. {pl.get('name')}  |  " + " | ".join(bits) + (f"  |  ID {pid}" if pid else ""))
+                    mark = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"[i - 1] if 1 <= i <= 20 else f"{i}."
+                    lines.append(f"  {mark} {pl.get('name')}  |  " + " | ".join(bits) + (f"  |  ID {pid}" if pid else ""))
             if gcount == 0:
                 lines.append("  （当前没有在线玩家）")
             if offline:
@@ -1904,7 +1905,7 @@ class ZeroARKPlugin(Star):
             yield event.plain_result(f"❌ 加点命令执行异常（{out[:100]}），未加点")
             return
         logger.info(f"✅ 管理员加点: game={game} id={pid} +{points} server={target.get('name')} resp={out[:60]}")
-        verify = self._getpoints_text(target, pid) if cfg.get('verify_with_getpoints', True) else ""
+        verify = await self._getpoints_text(target, pid) if cfg.get('verify_with_getpoints', True) else ""
         yield event.plain_result(f"✅ 已在 {target.get('name')} 为{self._game_cn(game)}玩家 {pid} 加点 +{points}{verify}")
 
     @filter.command("addpoints")
@@ -2073,7 +2074,7 @@ class ZeroARKPlugin(Star):
                 results.append(f"❌ @{tqq}：加点命令执行异常（{out[:60]}），未加点")
                 continue
             logger.info(f"✅ 群聊代加点: 由owner为 qq={tqq} game={game} +{points} server={online.get('name')}")
-            verify = self._getpoints_text(online, pid) if cfg.get('verify_with_getpoints', True) else ""
+            verify = await self._getpoints_text(online, pid) if cfg.get('verify_with_getpoints', True) else ""
             role = f"（{row['player_name']}）" if row.get('player_name') else ""
             results.append(f"✅ @{tqq}{role}：{cn} +{points} 已完成（{online.get('name')}）{verify}")
         if not results:
@@ -2731,7 +2732,7 @@ class ZeroARKPlugin(Star):
             logger.error(f"签到加点失败: qq={qq} game={game} cmd={command} resp={out}")
             return f"❌ {cn}加点命令执行异常（{out[:80]}），已回滚可重新签到。请检查 config.json signin.{key_prefix}_cmd 命令模板"
         logger.info(f"✅ 签到加点成功: qq={qq} game={game} +{points} server={target.get('name')} cmd={command} resp={out[:60]}")
-        verify = self._getpoints_text(target, bind_row['player_id']) if cfg.get('verify_with_getpoints', True) else ""
+        verify = await self._getpoints_text(target, bind_row['player_id']) if cfg.get('verify_with_getpoints', True) else ""
         return f"✅ {cn}签到成功：已在 {target.get('name')} 加点 +{points} 点（ID: {bind_row['player_id'][:16]}）{verify}"
 
     async def _getpoints_text(self, target, pid) -> str:

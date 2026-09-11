@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.2.2] - 2026-09-11
+
+### 修复 / Fixed
+- 修复 `_getpoints_text` 调用漏 `await`：签到 / 加点后回读 `GetPlayerPoints` 余额失效（回复中出现 `<coroutine object ...>`），并会持续产生 `RuntimeWarning: coroutine was never awaited`
+  - Fixed missing `await` on `_getpoints_text`: the `GetPlayerPoints` balance read-back after check-in / add-points did not run (leaked a coroutine object), and triggered `RuntimeWarning: coroutine was never awaited`
+
+### 优化 / Changed
+- `/在线玩家` 的玩家列表改用 `①②③…` 圆序号：每台服务器独立编号，避免 QQ 客户端把 `1.` `2.` 行合并成有序列表而自动续号
+  - `/在线玩家` now numbers players with `①②③…` per server, preventing the QQ client from merging `1.`/`2.` lines into one auto-numbered list
+
 ## [1.2.1] - 2026-09-11
 
 ### 修复 / Fixed
@@ -117,6 +127,7 @@ An AstrBot plugin that queries ARK servers, binds QQ ↔ game accounts and runs 
 - 文档：`README.md`（中文）/ `README.en.md`（English）
 
 [1.0.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.0.1
+[1.2.2]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.2.2
 [1.2.1]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.2.1
 [1.2.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ultrazero594/astrbot_plugin_zeroserver/releases/tag/v1.1.0

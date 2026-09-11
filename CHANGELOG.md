@@ -2,6 +2,18 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.5.1] - 2026-09-11
+
+### 优化 / Changed
+- **`/帮助` 重排**：按「查服务器 / 查在线玩家 / 绑定&签到 / 本平台怎么用 / 消息互通 / 管理员」分组，行数更少、别名不再重复罗列（`/进化`= `/ase` 之类只写常用那个）
+  - **`/help` rewritten**: grouped into server query / online players / binding & check-in / how-to-use-this-platform / relay / admin, with fewer lines and no duplicated aliases
+- **按平台定制**：KOOK 侧写明「直接在频道里发指令即可，不用 @机器人」；QQ 侧保留「先 @机器人」与 openid 说明；`OneBot` / `qqbind` 相关行只在真的启用了 OneBot 时出现
+  - **Platform-aware**: KOOK shows "just type in the channel, no @ needed"; QQ keeps the @-mention and openid notes; `OneBot`/`qqbind` lines only appear when OneBot is actually enabled
+- 启用群间互通时，帮助里新增一行说明互通范围（如「QQ群、KOOK公共频道 之间互通；游戏内聊天会同时发到这些位置」）
+  - When the bridge is on, help now states the relay scope
+- 管理员段标题由「仅 Owner 私聊」改为「管理员」（因为现在也可在 `admin_channels` 里显示），并补上 `/更新地址`
+  - Admin section retitled from "owner DM only" to "管理员" (it can now also appear in `admin_channels`) and now lists `/更新地址`
+
 ## [1.5.0] - 2026-09-11
 
 ### 新增 / Added

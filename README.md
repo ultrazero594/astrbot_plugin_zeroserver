@@ -131,7 +131,7 @@ astrbot_plugin_zeroserver/
 2. 手机 QQ 的群机器人设置里开启 **获取群内全部消息** 与 **机器人主动在群聊内发言**（否则收不到非 @ 消息、也发不出主动通知）；
 3. **openid 说明**：官方机器人无法获取真实 QQ 号，用户标识是 openid（私聊 `user_openid`、群 `member_openid`）。`owner_qq`、`whitelist_groups`、`notify_group`、`update_notify_qq` 都填 openid，可用 `/我是谁` 获取；实测同一用户的群/私聊 openid 一致，可直接用发送者 ID 作统一身份；
 4. **绑定方式**：官方渠道下游戏内 `qqbind <QQ号>` 不可用（QQ 号无法映射为 openid），请用验证码流程：QQ 里 `/绑定 飞升 开绑` → 游戏公屏 `zsbind <验证码>`；
-5. **数据库自动迁移**：插件启动会检测 `qq_bind`/`qq_checkin` 的 `qq` 列，自动把 `BIGINT` 改为 `VARCHAR(64)`，并给 `qq_bind` 增加 `platform` 列（账号需 ALTER 权限）；
+5. **数据库自动迁移**：插件启动会检测 `qq_bind`/`qq_checkin` 的 `qq` 列，自动把 `BIGINT` 改为 `VARCHAR(64)`，并给 `qq_bind` 增加 `platform` 列（账号需 ALTER 权限）。若检测到 `platform` 为空且主键是纯数字 QQ 号的旧绑定（OneBot 时代遗留），会标记为 `legacy` 并在启动日志提示条数——这些记录在 openid 下无法直接命中，玩家按第 4 步重新走一次游戏内验证绑定后，插件会按游戏 ID 自动接回原记录；
 6. 指令面板 / 自定义菜单可通过开放平台 API 配置：见 [docs/qqofficial-commands.md](docs/qqofficial-commands.md)。
 
 ## 配置说明

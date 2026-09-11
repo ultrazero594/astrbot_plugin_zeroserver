@@ -2,6 +2,13 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.19.1] - 2026-09-12
+
+### 变更 / Changed
+- CCA 通道的公屏标签更醒目：默认 `cca_map_label` / `cca_map_label_kook` 从 `QQ群` / `KOOK` 改为 **`跨服-QQ群` / `跨服-KOOK`**（CCA 会渲染成 `[跨服-KOOK]: 名字: 内容`）
+- 写 CCA 时 `Map` 标签也过一遍 `_game_safe()`，避免标签里出现 emoji 后被游戏渲染成缺字形方块
+  - Clearer CCA labels (`跨服-QQ群` / `跨服-KOOK`) and the label now goes through `_game_safe()` too
+
 ## [1.19.0] - 2026-09-12
 
 ### 新增 / Added

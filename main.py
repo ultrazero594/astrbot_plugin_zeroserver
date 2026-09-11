@@ -245,8 +245,8 @@ DEFAULT_CONFIG = {
     # QQ/KOOK → 游戏公屏 的发送通道：rcon（默认，任何环境可用）| cca（写 CrossChatAscended 的表，
     # 借用它的跨服通道与格式；只有装了 CCA 的服会显示）
     "game_send_via": "rcon",
-    "cca_map_label": "QQ群",          # 写 CCA 时 Map 字段用的标签（也用它识别"自己写的行"防回声）
-    "cca_map_label_kook": "KOOK",
+    "cca_map_label": "跨服-QQ群",     # 写 CCA 时 Map 字段用的标签（也用它识别"自己写的行"防回声）
+    "cca_map_label_kook": "跨服-KOOK",
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -487,7 +487,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1177,7 +1177,7 @@ class ZeroARKPlugin(Star):
         if not srcs:
             logger.warning("⚠️ 未配置 asa_chat / ase_chat 数据源，无法走 CCA 通道")
             return False
-        label = self._cca_label_for(platform_name)[:50]
+        label = self._game_safe(self._cca_label_for(platform_name))[:50]
         sender = self._game_safe(sender)[:100]
         message = self._game_safe(message)[:250]
         ok_any = False

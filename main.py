@@ -254,9 +254,12 @@ DEFAULT_CONFIG = {
     "plugin_msg_color": "0.2,0.85,1",       # 默认颜色 r,g,b（0~1）
     "plugin_msg_color_qq_official": "0.35,0.75,1",   # QQ 消息用蓝色
     "plugin_msg_color_kook": "0.75,0.5,1",  # KOOK 消息用紫色
-    # 已经装了彩色插件 ZeroARKMsg 的服务器（按名字子串匹配，不区分大小写）；
-    # **留空 = 所有服务器都走彩色**；填了名单则只有名单内的走彩色，名单外仍用 serverchat 纯文本
+    # 已经装了彩色插件 ZeroARKMsg 的飞升(ASA)服务器（按名字子串匹配，不区分大小写）；
+    # **留空 = 所有飞升服都走彩色**；填了名单则只有名单内的走彩色，名单外仍用 serverchat 纯文本
     "plugin_msg_servers": [],
+    # 装了彩色插件的进化(ASE)服务器（同上匹配规则）；**留空 = 不启用**（进化服默认仍走纯文本，
+    # 因为插件要逐台装；装好一台就往这里加一个名字，避免发给没装的服导致消息丢失）
+    "plugin_msg_servers_ase": [],
     # 富文本（CCA 那种分段多色）：走 ZeroARKMsgChat（聊天栏通道，实测支持 <RichColor>）
     # 占位符：{c}=平台颜色 {tag}=前缀 {sender}=发送者 {message}=内容；留空则退回"整条单色"
     "plugin_chat_cmd": "ZeroARKMsgChat",
@@ -510,7 +513,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.27.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.28.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1533,6 +1536,16 @@ class ZeroARKPlugin(Star):
                 logger.error(f"❌ 检查缓存更新失败: {e}")
             await asyncio.sleep(interval)
 
+    def _rcon_run_one(self, host: str, port: int, command: str, timeout: float = None) -> str:
+        """每条命令都单独开一条新连接再执行。
+        原因：ASE(进化) 的 RCON **一条连接只能跑一条命令**（第 2 条会 SessionTimeout: packet ID mismatch），
+        ASA(飞升) 虽然允许复用，但统一这么做最稳，代价只有几十毫秒。"""
+        if not self.rcon_password:
+            raise RuntimeError("RCON 密码为空")
+        t = timeout if timeout is not None else self.config.get('rcon_timeout', 10.0)
+        with RconClient(host, port, passwd=self.rcon_password, timeout=t) as client:
+            return client.run(command)
+
     def _query_via_rcon_sync(self, host: str, port: int) -> dict:
         if not self.rcon_password:
             return None
@@ -1553,7 +1566,8 @@ class ZeroARKPlugin(Star):
                             return v
                     return default
 
-                raw_players = client.run("listplayers")
+                # 新连接执行第二条命令（ASE 不支持同连接连发）
+                raw_players = self._rcon_run_one(host, port, "listplayers")
                 players = []
                 for line in raw_players.splitlines():
                     line = line.strip()
@@ -1992,7 +2006,8 @@ class ZeroARKPlugin(Star):
                     if name:
                         players.append({"name": name, "id": pid})
 
-                info_raw = client.run("getserverinfo")
+                # 新连接执行第二条命令（ASE 不支持同连接连发）
+                info_raw = self._rcon_run_one(host, port, "getserverinfo")
                 info = {}
                 for ln in info_raw.splitlines():
                     if ': ' in ln:
@@ -4638,11 +4653,14 @@ class ZeroARKPlugin(Star):
             # 只有装了彩色插件（ZeroARKMsg）的服务器才走彩色命令，其余服务器仍用 serverchat，
             # 避免"插件没装 → 命令不认 → 那条服一条消息都收不到"
             only = [str(x).strip().lower() for x in (self.config.get('plugin_msg_servers') or []) if str(x).strip()]
+            only_ase = [str(x).strip().lower() for x in (self.config.get('plugin_msg_servers_ase') or []) if str(x).strip()]
 
             def _has_plugin(t):
                 name = str(t.get('name') or '').lower()
+                if 'ase' in name:               # 进化(ASE)：插件要逐台装，名单留空 = 不启用（安全）
+                    return bool(only_ase) and any(x in name for x in only_ase)
                 if not only:
-                    return True     # 名单留空 = 所有服务器都走彩色/富文本（全服生效）
+                    return True                 # 飞升(ASA)：名单留空 = 全部走彩色/富文本
                 return any(x in name for x in only)
 
             colored = [t for t in targets if _has_plugin(t)]

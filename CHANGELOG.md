@@ -2,6 +2,18 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.28.0] - 2026-09-12
+
+### 新增 / Added
+- **进化(ASE) 彩色支持**：配套插件 `ZeroARKMsg` 的 ASE 版（ArkApi 3.x，`DllMain` 加载）已在**进化孤岛**实测通过（热加载 ✓ 单色红/绿 ✓ **聊天栏 `<RichColor>` 富文本 ✓**）。机器人侧新增：
+  - 目标识别：RCON 目标名区分 `ASE-*` / `ASA-*`，进化服走 ASE 分支
+  - 新配置 **`plugin_msg_servers_ase`**（默认 `[]` = **不启用**）：装好插件的进化服才写进名单；**名单外的进化服仍用 `serverchat` 纯文本**（避免发给没装插件的服导致消息丢失）
+  - 飞升侧的 `plugin_msg_servers`（留空=全部）语义不变
+
+### 修复 / Fixed
+- **RCON 每条命令各开一条新连接**：新增 `_rcon_run_one()`，修掉 `_query_via_rcon_sync()` 与 `_query_players_detail_sync()` 在**同一条连接里连发两条命令**的写法 —— **ASE 的 RCON 一条连接只能跑一条命令**（第 2 条报 `SessionTimeout: packet ID mismatch`），ASA 虽允许复用但统一这么做更稳
+- ASE color support (per-server `plugin_msg_servers_ase`, default off) plus one-connection-per-RCON-command (`_rcon_run_one`), because the ASE RCON rejects a second command on the same connection
+
 ## [1.27.0] - 2026-09-12
 
 ### 移除 / Removed

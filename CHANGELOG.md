@@ -2,6 +2,13 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.24.0] - 2026-09-12
+
+### 变更 / Changed
+- **彩色通道改为"按服务器分流"**：新增配置 `plugin_msg_servers`（服务器名字子串列表）。`game_send_via=rcon_color` 时，**只有名单里的服务器**走插件命令 `ZeroARKMsgSend <r,g,b> <文本>` 上色，**其它服务器仍用 `serverchat` 纯文本** —— 避免"某台服还没装插件 → 命令不认 → 那条服一条消息都收不到"（用户要求：修 bug 不能影响功能）。日志会打印 `🎨 彩色 N 台 / 纯文本 M 台`
+- 实测确认（2026-09-12，繁星 Astraeos）：插件 v1.0.2 加载成功、`ZeroARKMsgTest` 返回 `OK: test message sent (cyan)`、`ZeroARKMsgSend 1,0.3,0.3 …` 返回 `OK: sent(color 1,0.3,0.3, chars 13)`，游戏内截图可见 **`(服务器): [跨服] 彩色消息通道测试成功`（青色）** 与 **`(服务器): [彩色测试] 第1条：红色`（红色）** —— 颜色按参数正确渲染
+- Colored delivery is now per-server: only servers listed in `plugin_msg_servers` use the plugin command; the rest keep plain `serverchat`, so a server without the plugin can never lose messages
+
 ## [1.23.0] - 2026-09-12
 
 ### 新增 / Added

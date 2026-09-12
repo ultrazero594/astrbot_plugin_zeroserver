@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import hashlib
 import json
 import re
@@ -255,6 +255,9 @@ DEFAULT_CONFIG = {
     "plugin_msg_color": "0.2,0.85,1",       # 默认颜色 r,g,b（0~1）
     "plugin_msg_color_qq_official": "0.35,0.75,1",   # QQ 消息用蓝色
     "plugin_msg_color_kook": "0.75,0.5,1",  # KOOK 消息用紫色
+    # 已经装了彩色插件 ZeroARKMsg 的服务器（按名字子串匹配，不区分大小写）；
+    # 名单内的走 ZeroARKMsgSend 上色，名单外仍用 serverchat 纯文本（保证不会因为没装插件而漏消息）
+    "plugin_msg_servers": [],
     # 公共消息审计（用户红线：发往公共区域的内容必须先过审）
     # off=关闭 / log=只记日志（默认，dry-run 观察误报）/ redact=命中即自动打码
     "public_msg_audit": "log",
@@ -502,7 +505,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.23.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.24.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -4639,8 +4642,21 @@ class ZeroARKPlugin(Star):
             if not targets:
                 logger.warning("⚠️ 没有可用的 RCON 目标，彩色消息发不出去")
                 return
-            await self._send_rcon_concurrent(targets, f"{cmd_name} {color} {text}")
-            logger.info(f"🎨 已通过插件彩色通道发送: {text[:40]}")
+            # 只有装了彩色插件（ZeroARKMsg）的服务器才走彩色命令，其余服务器仍用 serverchat，
+            # 避免"插件没装 → 命令不认 → 那条服一条消息都收不到"
+            only = [str(x).strip().lower() for x in (self.config.get('plugin_msg_servers') or []) if str(x).strip()]
+
+            def _has_plugin(t):
+                name = str(t.get('name') or '').lower()
+                return bool(only) and any(x in name for x in only)
+
+            colored = [t for t in targets if _has_plugin(t)]
+            plain = [t for t in targets if not _has_plugin(t)]
+            if colored:
+                await self._send_rcon_concurrent(colored, f"{cmd_name} {color} {text}")
+            if plain:
+                await self._send_rcon_concurrent(plain, f"serverchat {text}")
+            logger.info(f"🎨 彩色 {len(colored)} 台 / 纯文本 {len(plain)} 台：{text[:40]}")
             return
         if via == 'cca':
             if await self._cca_send(platform_name, sender_name, message):

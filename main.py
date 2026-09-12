@@ -272,6 +272,8 @@ DEFAULT_CONFIG = {
     # 游戏内「飞升 ↔ 进化」互转的样式：留空 = 退回纯文本 serverchat；支持 <RichColor> 富文本
     # 占位符：{tag}=[飞升]/[进化] {tag_color}=来源游戏色 {map}=地图 {player}=玩家 {message}=内容
     "game_relay_format": "<RichColor Color=\"{tag_color}\">{tag}</> <RichColor Color=\"0.65,0.65,0.65,1\">【{map}】</> <RichColor Color=\"0.3,1,0.85\">{player}: </> <RichColor Color=\"1,1,0.2\">{message}</>",
+    # 跨游戏转发时聊天栏显示的发送者名（留空 = 用插件里的默认"跨服"）
+    "game_relay_sender": "ZeroARK",
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -530,7 +532,8 @@ class CrossChatForwarder:
         plain = [t for t in targets if not self.plugin._target_has_plugin(t)]
         if colored:
             if rich:
-                sender = str(self.plugin.config.get('plugin_chat_sender') or '').strip()
+                sender = str(self.plugin.config.get('game_relay_sender')
+                             or self.plugin.config.get('plugin_chat_sender') or '').strip()
                 chat_cmd = str(self.plugin.config.get('plugin_chat_cmd') or 'ZeroARKMsgChat').strip() or 'ZeroARKMsgChat'
                 await self.plugin._send_rcon_concurrent(
                     colored, f"{chat_cmd} {sender}|{rich}" if sender else f"{chat_cmd} {rich}")
@@ -543,7 +546,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)

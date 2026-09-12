@@ -79,10 +79,10 @@ All notable changes are documented here. 语义化版本：语义化版本 2.0 /
 ### 新增 / Added
 - **QQ/KOOK → 游戏公屏 的发送通道可选**（新配置 `game_send_via = rcon | cca`）：
   - `rcon`（默认）：原来的做法，`serverchat` 并发发给所有 RCON 目标
-  - `cca`：把消息 **INSERT 进 CrossChatAscended 的 `cross_chat` 表**（`asachat` / `asechat` 两个库），由 CCA 在各自服务器上打印 —— 沿用 CCA 自己的格式（`[地图]: 发送者: 内容`），且**只有装了 CCA 的服会收到**；实测 0.25s 内上屏、中文正常
+  - `cca`：把消息 **INSERT 进 CrossChatAscended 的 `cross_chat` 表**（飞升库 / 进化库各一份，见 `db_sources` 配置），由 CCA 在各自服务器上打印 —— 沿用 CCA 自己的格式（`[地图]: 发送者: 内容`），且**只有装了 CCA 的服会收到**；实测 0.25s 内上屏、中文正常
   - 相关配置：`cca_map_label` / `cca_map_label_kook`（写表时 `Map` 字段用的标签，也用于识别"自己写的行"）、`cca_fallback_rcon`（默认 true：CCA 写失败时回退 RCON，避免消息丢失）
   - 配套防回声：跨服转发读表时会**跳过 `Map` 等于上述标签的行**，否则 QQ→游戏 的消息会被读回来又发回 QQ
-  - Optional delivery channel for QQ/KOOK → game chat: `game_send_via = rcon | cca`. The `cca` mode inserts into CrossChatAscended's `cross_chat` table (both `asachat` and `asechat`), letting CCA print it on every server that runs it (with CCA's own formatting); write failures fall back to RCON by default, and the game→chat relay skips rows whose `Map` equals our labels to avoid echo loops
+  - Optional delivery channel for QQ/KOOK → game chat: `game_send_via = rcon | cca`. The `cca` mode inserts into CrossChatAscended's `cross_chat` table (one row per game version, see `db_sources`), letting CCA print it on every server that runs it (with CCA's own formatting); write failures fall back to RCON by default, and the game→chat relay skips rows whose `Map` equals our labels to avoid echo loops
 
 ## [1.18.5] - 2026-09-12
 

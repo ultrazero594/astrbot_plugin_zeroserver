@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import hashlib
 import json
 import re
@@ -258,6 +258,10 @@ DEFAULT_CONFIG = {
     # 已经装了彩色插件 ZeroARKMsg 的服务器（按名字子串匹配，不区分大小写）；
     # 名单内的走 ZeroARKMsgSend 上色，名单外仍用 serverchat 纯文本（保证不会因为没装插件而漏消息）
     "plugin_msg_servers": [],
+    # 富文本（CCA 那种分段多色）：走 ZeroARKMsgChat（聊天栏通道，实测支持 <RichColor>）
+    # 占位符：{c}=平台颜色 {tag}=前缀 {sender}=发送者 {message}=内容；留空则退回"整条单色"
+    "plugin_chat_cmd": "ZeroARKMsgChat",
+    "plugin_chat_format": "<RichColor Color=\"{c}\">{tag} {sender}</> <RichColor Color=\"1,1,1,1\">{message}</>",
     # 公共消息审计（用户红线：发往公共区域的内容必须先过审）
     # off=关闭 / log=只记日志（默认，dry-run 观察误报）/ redact=命中即自动打码
     "public_msg_audit": "log",
@@ -505,7 +509,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.24.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.25.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -4633,11 +4637,23 @@ class ZeroARKPlugin(Star):
         if via in ('plugin', 'rcon_color', 'color'):
             # 走 AsaApi 插件 ZeroARKMsg 的 RCON 命令：能上色（RCON 的 serverchat 本身不支持颜色）
             cmd_name = str(self.config.get('plugin_msg_cmd') or 'ZeroARKMsgSend').strip() or 'ZeroARKMsgSend'
+            chat_cmd = str(self.config.get('plugin_chat_cmd') or 'ZeroARKMsgChat').strip() or 'ZeroARKMsgChat'
             color = str(self.config.get(f'plugin_msg_color_{platform_name}')
                         or self.config.get('plugin_msg_color') or '0.2,0.85,1').strip()
             prefix = (self.config.get('kook_forward_prefix', '[KOOK]') if platform_name == 'kook'
                       else self.config.get('qq_forward_prefix', '[QQ群]'))
-            text = self._game_safe(f"{prefix} {sender_name}: {message}")
+            safe_sender = self._game_safe(sender_name)
+            safe_msg = self._game_safe(message)
+            plain_text = f"{prefix} {safe_sender}: {safe_msg}"
+            # 富文本模板（可留空则退回"整条单色"）：{c}=平台颜色 {tag}=前缀 {sender}=发送者 {message}=内容
+            rich_text = ''
+            fmt = str(self.config.get('plugin_chat_format') or '').strip()
+            if fmt:
+                try:
+                    rich_text = fmt.format(c=color, tag=prefix, sender=safe_sender, message=safe_msg)
+                except Exception as e:
+                    logger.error(f"plugin_chat_format 模板不合法（{e}），本条第色回退为单色发送")
+                    rich_text = ''
             targets = [t for t in self.rcon_targets if t.get('host') and t.get('port')]
             if not targets:
                 logger.warning("⚠️ 没有可用的 RCON 目标，彩色消息发不出去")
@@ -4653,10 +4669,14 @@ class ZeroARKPlugin(Star):
             colored = [t for t in targets if _has_plugin(t)]
             plain = [t for t in targets if not _has_plugin(t)]
             if colored:
-                await self._send_rcon_concurrent(colored, f"{cmd_name} {color} {text}")
+                if rich_text:
+                    await self._send_rcon_concurrent(colored, f"{chat_cmd} {rich_text}")
+                else:
+                    await self._send_rcon_concurrent(colored, f"{cmd_name} {color} {plain_text}")
             if plain:
-                await self._send_rcon_concurrent(plain, f"serverchat {text}")
-            logger.info(f"🎨 彩色 {len(colored)} 台 / 纯文本 {len(plain)} 台：{text[:40]}")
+                await self._send_rcon_concurrent(plain, f"serverchat {plain_text}")
+            mode = "富文本" if rich_text else "单色"
+            logger.info(f"🎨 [{mode}] 彩色 {len(colored)} 台 / 纯文本 {len(plain)} 台：{plain_text[:40]}")
             return
         if via == 'cca':
             if await self._cca_send(platform_name, sender_name, message):

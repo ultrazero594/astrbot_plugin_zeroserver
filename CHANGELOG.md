@@ -2,6 +2,15 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.25.0] - 2026-09-12
+
+### 新增 / Added
+- **富文本分段多色（CCA 那种样式）**：配套插件 `ZeroARKMsg` 的 `ZeroARKMsgChat` 走**聊天栏**通道，实测**支持 `<RichColor Color="r,g,b,a">…</>` 标记**（同一行可分段上色），而服务器消息通道不解析富文本。新增配置：
+  - `plugin_chat_cmd`（默认 `ZeroARKMsgChat`）、`plugin_chat_format`（默认 `<RichColor Color="{c}">{tag} {sender}</> <RichColor Color="1,1,1,1">{message}</>`，占位符 `{c}` 平台色 / `{tag}` 前缀 / `{sender}` / `{message}`）
+  - 装了插件的服（`plugin_msg_servers` 名单内）走富文本；留空 `plugin_chat_format` 则退回整条单色；名单外的服照旧 `serverchat` 纯文本
+  - 实测四种样式（名字蓝+内容白 / 仿 CCA 三段灰金白 / 只前缀上色 / 前缀紫+内容亮黄）**全部按标记正确渲染** ✓；`<TextStyle Bold>` 不生效（字体/粗体插件改不了）
+- Rich-text multi-color (CCA-style) support via the chat channel: `<RichColor>` markup renders there (not on the server-message channel), configurable through `plugin_chat_format` / `plugin_chat_cmd`
+
 ## [1.24.0] - 2026-09-12
 
 ### 变更 / Changed

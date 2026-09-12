@@ -2,10 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.20.1] - 2026-09-12
+
+### 修复 / Fixed
+- 绑定帮助里的位置说法改准确：飞升的 EOS **在游戏里打开商店（ArkShop）就能看到自己的**（原文写成"商店页面"，容易被理解成网页）
+- Wording fix: the ASA EOS ID is visible in the **in-game shop (ArkShop)** UI — the previous "shop page" wording read like a website
+
 ## [1.20.0] - 2026-09-12
 
 ### 变更 / Changed
-- **帮助菜单重排（绑定部分）**：只教两条真正可用的路 —— ① **直接绑定**（飞升填 EOS 32 位 ID，**商店页面就能看到**；进化填 SteamID64）② **验证码开绑**（`/绑定 <游戏> 开绑` → 游戏公屏 `zsbind <验证码>`，换绑也走它）。`/我的ID` 的用途改为"`/关联` 打通多平台 / 找管理员核对身份"。新增配置 `id_source_hint`（默认写明"飞升 EOS 在商店页面就能看到"，可自行改写或换成带链接的说法）
+- **帮助菜单重排（绑定部分）**：只教两条真正可用的路 —— ① **直接绑定**（飞升填 EOS 32 位 ID，**游戏中打开商店（ArkShop）就能看到自己的**；进化填 SteamID64）② **验证码开绑**（`/绑定 <游戏> 开绑` → 游戏公屏 `zsbind <验证码>`，换绑也走它）。`/我的ID` 的用途改为"`/关联` 打通多平台 / 找管理员核对身份"。新增配置 `id_source_hint`（默认写明"飞升 EOS 在游戏内商店 ArkShop 就能看到"，可自行改写）
 - **游戏内 `qqbind` 通道默认关闭**（`game_bind.qq_cmd=false`，原为 true）：该通道要求在游戏公屏贴出自己的身份 ID，有冒绑风险，而"直接发 EOS/SteamID"与"验证码 `zsbind`"两条路更安全。关闭后若仍有玩家在公屏发 `qqbind`，会记 INFO 日志（`⏭️ 游戏内 qqbind 已停用…`）—— 之前是**静默忽略**，导致"玩家说在游戏里发了没反应"查不出来
 - **修复：`qqbind` 漏打空格时会被当普通聊天转发到 QQ/KOOK**（如游戏公屏的 `qqbind22C5F7CC…`）：新增宽松识别 `BIND_CHAT_RE`，这类消息一律静默吞掉，不再把身份 ID 外泄到群里
 - Help menu reorganized (bind section): only the two working paths are documented (direct bind with the EOS ID from the shop page / SteamID64, or the 6-digit `zsbind` code). `/我的ID` now documents its real uses. New `id_source_hint` config. The legacy in-game `qqbind` channel is **off by default** and now logs instead of silently ignoring; a whitespace-less `qqbind…` no longer leaks into group chat via the relay.

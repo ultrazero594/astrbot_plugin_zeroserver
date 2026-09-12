@@ -39,7 +39,7 @@ BIND_GUIDE = (
     "\n\n📝 绑定方式（选一种即可）：\n"
     "① 直接绑定（推荐，随时可用、不需要私聊）：\n"
     "   /绑定 飞升 <EOS 32位ID>　或　/绑定 进化 <SteamID64 17位数字>\n"
-    "   · 飞升的 EOS ID 在商店页面就能看到\n"
+    "   · 飞升的 EOS ID 在游戏里打开商店（ArkShop）就能看到\n"
     "② 验证码绑定（不知道上面那串 ID、或要换绑时用这个）：\n"
     "   /绑定 进化 开绑 → 拿 6 位验证码 → 进游戏公屏发：zsbind <验证码>\n"
     "   （能私聊就私发给你；QQ 个人认证收不到私聊时会直接回在这里）\n"
@@ -272,8 +272,8 @@ DEFAULT_CONFIG = {
     "qq_keyboard_template_id": "",
     # 私聊发不出验证码时，是否允许把验证码直接发在群/频道里（QQ 个人认证收不到私聊，只能这样）
     "bind_code_public_fallback": True,
-    # 玩家从哪儿查自己的游戏 ID（写进绑定帮助文案；商店页面能看到飞升的 EOS）
-    "id_source_hint": "飞升的 EOS 32 位 ID：在商店页面就能看到；进化用 SteamID64（17 位数字，7656119 开头）",
+    # 玩家从哪儿查自己的游戏 ID（写进绑定帮助文案；游戏内 ArkShop 商店界面能看到飞升的 EOS）
+    "id_source_hint": "飞升的 EOS 32 位 ID：在游戏里打开商店（ArkShop）就能看到；进化用 SteamID64（17 位数字，7656119 开头）",
     # KOOK 卡片按钮补丁（AstrBot 默认丢弃 message_btn_click；打开后点卡片按钮=执行对应指令）
     "kook_button_patch": True,
     # 没装 ArkShop 插件的服务器（按名字子串匹配，不区分大小写）：加点、倍率刷新等 ArkShop 命令会跳过它们
@@ -494,7 +494,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.20.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.20.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2805,7 +2805,7 @@ class ZeroARKPlugin(Star):
             "· 排查绑定/签到问题时给管理员核对身份",
             "",
             self.config.get('id_source_hint')
-            or "绑定游戏账号：/绑定 飞升 <EOS 32位ID>（商店页面能看到）或 /绑定 进化 <SteamID64>",
+            or "绑定游戏账号：/绑定 飞升 <EOS 32位ID>（游戏里打开 ArkShop 商店能看到）或 /绑定 进化 <SteamID64>",
             "",
             "🔒 这串 ID 等于你的身份凭证，别发给别人。",
         ]
@@ -2851,7 +2851,7 @@ class ZeroARKPlugin(Star):
             lines = [
                 "📖 绑定 / 签到",
                 "· /绑定 飞升 <EOS 32位ID> ｜ /绑定 进化 <SteamID64> → 直接绑定（推荐）",
-                "·   飞升的 EOS ID 在商店页面就能看到",
+                "·   飞升的 EOS ID 在游戏里打开商店（ArkShop）就能看到",
                 "· /绑定 <进化|飞升> 开绑 → 拿 6 位验证码 → 游戏公屏 zsbind <验证码>（换绑也走这条）",
                 "· 换绑：先 /解绑 <进化|飞升>，再重新绑定",
                 f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
@@ -4077,7 +4077,7 @@ class ZeroARKPlugin(Star):
         game = self._parse_game(parts[1]) if len(parts) >= 2 else ""
         if len(parts) < 3 or not game:
             yield event.plain_result("用法：\n/bind 或 /绑定 <进化|飞升> <ID>\n"
-                                     "  飞升(ASA)填 EOS ID（32位，如 0002…）→ 在商店页面能看到\n"
+                                     "  飞升(ASA)填 EOS ID（32位，如 0002…）→ 在游戏里打开商店（ArkShop）能看到\n"
                                      "  进化(ASE)填 SteamID64（17位数字，7656119开头）\n"
                                      "不知道自己的 ID / 要换绑：/绑定 <进化|飞升> 开绑 → 拿 6 位验证码 → 游戏公屏发 zsbind <验证码>\n"
                                      "绑定后可用 /签到 每天领一次点数（进化+50 / 飞升+50，各游戏每天一次）")
@@ -4116,7 +4116,7 @@ class ZeroARKPlugin(Star):
                 yield event.plain_result(
                     "❌ 验证码私发失败：机器人无法私聊到你。\n"
                     "· QQ 开放平台的「允许被其他 QQ 用户添加使用」目前只对企业开发者灰度开放，个人认证账号开不了 → 普通玩家收不到私聊\n"
-                    "· 请改用直接绑定（无需私聊）：/绑定 飞升 <EOS 32位ID>（商店页面能看到）　或　/绑定 进化 <SteamID64>\n"
+                    "· 请改用直接绑定（无需私聊）：/绑定 飞升 <EOS 32位ID>（游戏里打开商店 ArkShop 能看到）　或　/绑定 进化 <SteamID64>\n"
                     "· 换绑：先 /解绑 飞升，再重新绑定")
                 return
             yield event.plain_result(

@@ -2,6 +2,20 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.22.0] - 2026-09-12
+
+### 新增 / Added
+- **彩色消息通道（走 RCON，不需要开端口/不需要私聊）**：RCON 的 `serverchat` 本身**不支持颜色**（`<RichColor>`/`<TextStyle>`/`<span>` 等一律被当普通文字打印，实测两轮），但配套的 AsaApi 插件 `ZeroARKMsg` 注册了 RCON 命令 `ZeroARKMsgSend <r,g,b> <文本>`。新增 `game_send_via = rcon_color`（别名 `plugin`/`color`）：用**已有的 RCON 通道**调这个命令把 QQ/KOOK 的消息**彩色**广播进游戏。配置：`plugin_msg_cmd`（默认 `ZeroARKMsgSend`）、`plugin_msg_color`、`plugin_msg_color_qq_official`（默认蓝 `0.35,0.75,1`）、`plugin_msg_color_kook`（默认紫 `0.75,0.5,1`）
+- Color delivery via RCON: the companion AsaApi plugin `ZeroARKMsg` exposes `ZeroARKMsgSend <r,g,b> <text>`; a new `game_send_via=rcon_color` mode uses the existing RCON path to broadcast colored messages (no HTTP endpoint, no port publishing, no DM needed)
+
+### 修复 / Fixed
+- **`/我的ID` 的 QQ 例外**：QQ 官方个人认证**没有私聊功能**，群内也打码的话玩家永远看不到自己的 ID → QQ 群里如实给完整 ID（并提示勿外传）；KOOK（可私聊）仍然打码
+- **a2s 查询不再阻塞事件循环**（`_query_ase_a2s` 的两次同步调用改走 `run_in_executor`，原来单次最多卡 10 秒）
+- **`_cca_send` / `_lookup_tribe` 的数据库连接在异常路径也会关闭**（原来失败一次漏一个连接）
+- **定时任务加 `replace_existing=True` + try/except**（插件热重载不再抛 `ConflictingIdError`）
+- **LLM 回复改后台任务**：原来在 `on_message` 里同步 `await`（最长 ~90 秒），会卡住同一条消息的"转进游戏/群间互通"
+- QQ-official exception for `/我的ID` (no DM on personal certification); a2s calls moved off the event loop; DB connections closed on error paths; scheduler job uses `replace_existing`; LLM replies run in background tasks
+
 ## [1.21.0] - 2026-09-12
 
 ### 修复 / Fixed

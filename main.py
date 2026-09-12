@@ -250,6 +250,11 @@ DEFAULT_CONFIG = {
     "cca_map_label": "QQ",                 # 写 CCA 时 Map 字段用的标签（**必须纯 ASCII**，中文会被 CCA 解成乱码）
     "cca_map_label_kook": "KOOK",
     "cca_sender_prefix": "【跨服】",         # 加在发送者前面（Sender 字段支持中文，用来显示"跨服"）
+    # 彩色通道：走 AsaApi 插件 ZeroARKMsg 的 RCON 命令（game_send_via = rcon_color / plugin）
+    "plugin_msg_cmd": "ZeroARKMsgSend",     # 插件里的彩色发送命令名
+    "plugin_msg_color": "0.2,0.85,1",       # 默认颜色 r,g,b（0~1）
+    "plugin_msg_color_qq_official": "0.35,0.75,1",   # QQ 消息用蓝色
+    "plugin_msg_color_kook": "0.75,0.5,1",  # KOOK 消息用紫色
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -494,7 +499,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.21.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.22.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -714,7 +719,12 @@ class ZeroARKPlugin(Star):
     def _schedule_tasks(self):
         if hasattr(self.context, 'scheduler'):
             interval = self.config['check_interval_minutes'] * 60
-            self.context.scheduler.add_job(self._check_updates, 'interval', seconds=interval, id='check_updates')
+            try:
+                # replace_existing：插件热重载时不再因同名 job 抛 ConflictingIdError
+                self.context.scheduler.add_job(self._check_updates, 'interval', seconds=interval,
+                                               id='check_updates', replace_existing=True)
+            except Exception as e:
+                logger.error(f"定时任务注册失败（缓存更新检查）: {e}")
 
     async def _check_updates(self):
         await self._fetch_servers()
@@ -1223,6 +1233,7 @@ class ZeroARKPlugin(Star):
                         "`Mode`,`Tags`,`isPm`,`PmRecipient`)")
                 vals = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
                 args = ('', label, sender, message, 0, '', 0, 0, '', 0, '')
+            conn = None
             try:
                 conn = await aiomysql.connect(host=src.get('host'), port=int(src.get('port') or 3306),
                                               user=src.get('user'), password=src.get('password'),
@@ -1231,11 +1242,17 @@ class ZeroARKPlugin(Star):
                 cur = await conn.cursor()
                 await cur.execute(f"INSERT INTO {table} {cols} VALUES {vals}", args)
                 await cur.close()
-                conn.close()
                 ok_any = True
                 logger.info(f"✅ 已写入 CCA（{src.get('id')}）: [{label}] {sender}: {message[:40]}")
             except Exception as e:
                 logger.error(f"❌ 写入 CCA 失败（{src.get('id')}）: {type(e).__name__}: {e}")
+            finally:
+                # 异常路径也必须关连接，否则每失败一次就漏一个
+                if conn is not None:
+                    try:
+                        await conn.ensure_closed()
+                    except Exception:
+                        pass
         return ok_any
 
     @staticmethod
@@ -1762,9 +1779,11 @@ class ZeroARKPlugin(Star):
                 address += ":27015"
             host, port_str = address.split(":")
             port = int(port_str)
-            info = a2s.info((host, port), timeout=5.0)
+            # a2s 是同步阻塞调用（各 5 秒超时），必须丢进线程池，否则会卡住整个事件循环
+            loop = asyncio.get_running_loop()
+            info = await loop.run_in_executor(None, lambda: a2s.info((host, port), timeout=5.0))
             try:
-                players = a2s.players((host, port), timeout=5.0)
+                players = await loop.run_in_executor(None, lambda: a2s.players((host, port), timeout=5.0))
                 pnames = self._a2s_player_names(players)
                 pcount = len(pnames)
             except Exception as e:
@@ -1989,6 +2008,7 @@ class ZeroARKPlugin(Star):
         if not src:
             return None
         col = 'EOSid' if game == 'ASA' else 'SteamId'
+        conn = None
         try:
             conn = await aiomysql.connect(
                 host=src.get('host'), port=int(src.get('port', 3306)),
@@ -2010,11 +2030,16 @@ class ZeroARKPlugin(Star):
                 if row2:
                     row = (row[0], row2[1], row[2] or row2[2], row[3])
             await cur.close()
-            conn.close()
             if row:
                 cache[key] = {"sender": row[0], "tribe": row[1] or '', "map": row[2] or '', "time": row[3]}
         except Exception as e:
             logger.debug(f"部落信息查询失败 {game}/{pid}: {type(e).__name__}: {e}")
+        finally:
+            if conn is not None:
+                try:
+                    await conn.ensure_closed()
+                except Exception:
+                    pass
         return cache[key]
 
     async def _players_cmd(self, event):
@@ -2807,8 +2832,12 @@ class ZeroARKPlugin(Star):
         own_id = str(qq)
         main_id = str(await self._resolve_identity(qq) or '')
         linked = bool(main_id) and main_id != own_id
-        # 公共区域（群/频道）一律打码，与 /我是谁 保持一致；完整 ID 只在私聊给
-        masked = bool(self._event_group_id(event))
+        # 公共区域（群/频道）一律打码，与 /我是谁 保持一致；完整 ID 只在私聊给。
+        # 例外：QQ 官方个人认证**没有私聊**（平台限制），群里也打码的话玩家就永远看不到自己的 ID → 这种情况如实给全。
+        plat_now = (self._event_platform(event) or '')
+        in_group_now = bool(self._event_group_id(event))
+        no_dm = plat_now == 'qq_official'
+        masked = in_group_now and not no_dm
         lines = [
             f"🆔 你的 {plat} 身份 ID：",
             self._mask_id(own_id) if masked else own_id,
@@ -2830,6 +2859,8 @@ class ZeroARKPlugin(Star):
         ]
         if masked:
             lines += ["（公共区域已打码；要看完整的请私聊机器人再发 /我的ID，或找管理员核对）"]
+        elif in_group_now and no_dm:
+            lines += ["（QQ 个人认证机器人没有私聊功能，所以这里直接给完整 ID；请勿外传）"]
         yield event.plain_result("\n".join(lines))
 
     @filter.command("我的ID")
@@ -4510,12 +4541,19 @@ class ZeroARKPlugin(Star):
                     return
                 self._last_llm_reply_time = now
 
-                # 5. 调用 LLM
+                # 5. 调用 LLM（放后台任务，别挡住同一条消息的"转进游戏/群间互通"）
                 logger.info(f"🤖 LLM 回复触发: {message[:50]}...")
-                reply = await self._call_llm(message)
-                if reply:
-                    await self._send_group_text(platform_name, group_id, reply)
-                    logger.info(f"🤖 LLM 回复成功: {reply[:50]}...")
+
+                async def _llm_reply_async(_msg=message, _plat=platform_name, _gid=group_id):
+                    try:
+                        _reply = await self._call_llm(_msg)
+                        if _reply:
+                            await self._send_group_text(_plat, _gid, _reply)
+                            logger.info(f"🤖 LLM 回复成功: {_reply[:50]}...")
+                    except Exception as _e:
+                        logger.error(f"LLM 回复任务异常: {_e}")
+
+                self._background_tasks.append(asyncio.create_task(_llm_reply_async()))
 
         # ---------- 群间互通：把本条消息同步到其它广播目标（QQ群 ↔ KOOK 频道） ----------
         if self.config.get('bridge_enabled', False):
@@ -4525,8 +4563,23 @@ class ZeroARKPlugin(Star):
             if sent_n:
                 logger.info(f"🔀 群间互通已转发到 {sent_n} 个目标")
 
-        # ---------- QQ/KOOK → 游戏（RCON 或 CCA 通道；并发，避免单服超时阻塞整条链路） ----------
+        # ---------- QQ/KOOK → 游戏（RCON / CCA / 彩色插件 三条通道；并发，避免单服超时阻塞整条链路） ----------
         via = str(self.config.get('game_send_via') or 'rcon').strip().lower()
+        if via in ('plugin', 'rcon_color', 'color'):
+            # 走 AsaApi 插件 ZeroARKMsg 的 RCON 命令：能上色（RCON 的 serverchat 本身不支持颜色）
+            cmd_name = str(self.config.get('plugin_msg_cmd') or 'ZeroARKMsgSend').strip() or 'ZeroARKMsgSend'
+            color = str(self.config.get(f'plugin_msg_color_{platform_name}')
+                        or self.config.get('plugin_msg_color') or '0.2,0.85,1').strip()
+            prefix = (self.config.get('kook_forward_prefix', '[KOOK]') if platform_name == 'kook'
+                      else self.config.get('qq_forward_prefix', '[QQ群]'))
+            text = self._game_safe(f"{prefix} {sender_name}: {message}")
+            targets = [t for t in self.rcon_targets if t.get('host') and t.get('port')]
+            if not targets:
+                logger.warning("⚠️ 没有可用的 RCON 目标，彩色消息发不出去")
+                return
+            await self._send_rcon_concurrent(targets, f"{cmd_name} {color} {text}")
+            logger.info(f"🎨 已通过插件彩色通道发送: {text[:40]}")
+            return
         if via == 'cca':
             if await self._cca_send(platform_name, sender_name, message):
                 return

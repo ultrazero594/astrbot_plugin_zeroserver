@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import hashlib
 import json
 import re
@@ -261,8 +261,12 @@ DEFAULT_CONFIG = {
     # 富文本（CCA 那种分段多色）：走 ZeroARKMsgChat（聊天栏通道，实测支持 <RichColor>）
     # 占位符：{c}=平台颜色 {tag}=前缀 {sender}=发送者 {message}=内容；留空则退回"整条单色"
     "plugin_chat_cmd": "ZeroARKMsgChat",
-    # 三段色：前缀按平台（{c}：QQ 蓝 / KOOK 紫）、名字金、内容白
-    "plugin_chat_format": "<RichColor Color=\"{c}\">{tag}</> <RichColor Color=\"1,0.9,0,1\">{sender}: </> <RichColor Color=\"1,1,1,1\">{message}</>",
+    # 三段色（已选 P2）：前缀按平台（{c}：QQ 蓝 / KOOK 紫）、名字品青、内容亮黄
+    "plugin_chat_format": "<RichColor Color=\"{c}\">{tag}</> <RichColor Color=\"0.3,1,0.85\">{sender}: </> <RichColor Color=\"1,1,0.2\">{message}</>",
+    # 聊天栏显示的发送者名（机器人侧下发；留空=用插件 zerocmd.ini 的 chat_sender；需插件 ≥ v1.0.5 才认 "名字|文本"）
+    "plugin_chat_sender": "",
+    "plugin_chat_sender_qq_official": "",
+    "plugin_chat_sender_kook": "",
     # 公共消息审计（用户红线：发往公共区域的内容必须先过审）
     # off=关闭 / log=只记日志（默认，dry-run 观察误报）/ redact=命中即自动打码
     "public_msg_audit": "log",
@@ -510,7 +514,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.25.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.26.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -4669,9 +4673,13 @@ class ZeroARKPlugin(Star):
 
             colored = [t for t in targets if _has_plugin(t)]
             plain = [t for t in targets if not _has_plugin(t)]
+            # 聊天栏发送者名（机器人侧下发；插件 ≥ v1.0.5 才认 "名字|文本"，插件旧版会把它当文字，先留空）
+            who = str(self.config.get(f'plugin_chat_sender_{platform_name}')
+                      or self.config.get('plugin_chat_sender') or '').strip()
             if colored:
                 if rich_text:
-                    await self._send_rcon_concurrent(colored, f"{chat_cmd} {rich_text}")
+                    payload = f"{chat_cmd} {who}|{rich_text}" if who else f"{chat_cmd} {rich_text}"
+                    await self._send_rcon_concurrent(colored, payload)
                 else:
                     await self._send_rcon_concurrent(colored, f"{cmd_name} {color} {plain_text}")
             if plain:

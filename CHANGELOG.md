@@ -2,6 +2,15 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.21.0] - 2026-09-12
+
+### 修复 / Fixed
+- **`/我的ID` 在群/频道里明文输出身份 ID**（违反"公共区域一律打码"）：现在与 `/我是谁` 一致，公共区域打码、私聊才给完整，并提示"要看完整的请私聊机器人"
+- **`_wait_qq_adapter()` 是无超时死循环**：没有 QQ 适配器（或 OneBot 掉线）时，`/绑定 开绑`、`/关联 开码`、`/测试推送` 等会**永久挂住、用户永远收不到回复**。现在加 20 秒 deadline，超时返回 `None`，`_send_group_msg()` / `_send_private_msg()` 对 `None` 明确返回失败（原来会 `TypeError` 崩在解包里）
+- **RCON 回退分支把内网 RCON 地址当"直连地址"发给用户**（既误导又泄露内网端点）：拿不到直连地址时不再展示地址，改提示"暂未取到直连地址（发 /更新地址 可刷新）"；顺带给 RCON 端口解析加 `ValueError` 保护
+- `game_bind.qq_cmd` 的代码兜底默认值 `True` → `False`，与 `DEFAULT_CONFIG` 保持一致（游戏内 qqbind 已默认停用）
+- Fixed `/我的ID` leaking full IDs in public channels, `_wait_qq_adapter()` hanging forever without a QQ adapter (now a 20s deadline + callers handle `None`), and the RCON fallback showing the internal RCON endpoint as if it were a direct-connect address; also unified the `game_bind.qq_cmd` fallback default with `DEFAULT_CONFIG`.
+
 ## [1.20.1] - 2026-09-12
 
 ### 修复 / Fixed

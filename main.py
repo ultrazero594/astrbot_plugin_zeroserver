@@ -494,7 +494,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.20.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.21.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1073,10 +1073,11 @@ class ZeroARKPlugin(Star):
             logger.debug(f"AIOCQHTTP 适配器(平台管理器)查找失败: {e}")
         return None
 
-    async def _wait_qq_adapter(self, purpose: str = "发送消息"):
-        """等待任一可用 QQ 平台就绪：优先 QQ 官方机器人，其次 OneBot；返回 (kind, obj)"""
-        logger.info(f"⏳ 等待 QQ 适配器连接（{purpose}）...")
-        while True:
+    async def _wait_qq_adapter(self, purpose: str = "发送消息", timeout: float = 20.0):
+        """等待任一可用 QQ 平台就绪：优先 QQ 官方机器人，其次 OneBot；返回 (kind, obj)，超时返回 None"""
+        logger.info(f"⏳ 等待 QQ 适配器连接（{purpose}，最多 {int(timeout)} 秒）...")
+        deadline = time.time() + max(1.0, float(timeout))
+        while time.time() < deadline:
             official = self._find_platform_inst('qq_official')
             if official is not None:
                 logger.info(f"✅ QQ 官方机器人适配器就绪（{purpose}）")
@@ -1090,6 +1091,9 @@ class ZeroARKPlugin(Star):
                 except Exception as e:
                     logger.debug(f"适配器未就绪: {e}")
             await asyncio.sleep(2)
+        # 关键：必须有超时，否则没有 QQ 适配器时调用方会永久挂住（用户永远收不到回复）
+        logger.warning(f"⚠️ 等待 QQ 适配器超时（{purpose}），本次放弃")
+        return None
 
     # ======================== KOOK 卡片按钮点击补丁 ========================
     # AstrBot 的 KOOK 适配器只处理 KMARKDOWN/CARD，SYSTEM(255) 里仅实现"角色更新"，
@@ -1365,7 +1369,10 @@ class ZeroARKPlugin(Star):
 
     async def _send_group_msg(self, group_id, message: str) -> bool:
         """主动发送群消息：优先 QQ 官方机器人，其次 OneBot（含 umo 回复通道）"""
-        kind, obj = await self._wait_qq_adapter("群消息发送")
+        kind, obj = await self._wait_qq_adapter("群消息发送") or (None, None)
+        if kind is None:
+            logger.warning(f"⚠️ 没有可用 QQ 适配器，群消息 {group_id} 发送失败")
+            return False
         if kind == 'qq_official':
             return await self._official_send(obj, 'group', str(group_id), message)
         client = obj
@@ -1396,7 +1403,10 @@ class ZeroARKPlugin(Star):
             if inst is None:
                 return False
             return await self._official_send(inst, 'private', str(user_id), message)
-        kind, obj = await self._wait_qq_adapter("私聊消息发送")
+        kind, obj = await self._wait_qq_adapter("私聊消息发送") or (None, None)
+        if kind is None:
+            logger.warning(f"⚠️ 没有可用 QQ 适配器，私聊 {str(user_id)[:12]} 发送失败")
+            return False
         if kind == 'qq_official':
             return await self._official_send(obj, 'private', str(user_id), message)
         client = obj
@@ -1874,11 +1884,15 @@ class ZeroARKPlugin(Star):
         if ":" not in rcon_addr:
             rcon_addr += ":7777"
         host, port_str = rcon_addr.split(":")
-        port = int(port_str)
+        try:
+            port = int(port_str)
+        except ValueError:
+            return f"❌ RCON 列表里的地址格式异常：{rcon_addr}" + FOOTER_ASA
         rcon_result = await self._query_via_rcon(host, port)
         if not rcon_result:
             return f"❌ ARK Status 查询失败，RCON 也失败" + FOOTER_ASA
-        display_addr = direct_addr if direct_addr else rcon_addr
+        # 直连地址没拿到就不展示地址 —— 绝不能用 RCON 端点冒充：那是内网地址 + RCON 端口，既误导又泄露
+        display_addr = direct_addr or ''
         custom_name = rcon_result.get('server_name', f"ZeroARK-{map_name}ASA")
         rcon_map = rcon_result.get('map_name', '')
         map_display = get_map_display(rcon_map if rcon_map else map_name, "ASA", lang)
@@ -1888,13 +1902,16 @@ class ZeroARKPlugin(Star):
         footer = FOOTER_ASA
         usage = self.usage_cache.get("ASA", "")
         lines = [
-            f"🎮 服务器状态", f"📌 地址：{display_addr}", f"🟢 状态：在线",
+            f"🎮 服务器状态",
+            f"📌 地址：{display_addr}" if display_addr else "📌 地址：暂未取到直连地址（发 /更新地址 可刷新）",
+            f"🟢 状态：在线",
             f"🌐 地图：{map_display}", f"👥 在线人数：{pcount} / {maxp or '?'}",
             f"🕹️ 服务器名称：{custom_name}", "📡 查询方式：RCON (ARK Status 回退)",
             "", "👥 在线玩家：", "  " + ("、".join(pnames[:20]) if pnames else "无"),
-            "", "🔗 直连方式：", f"【控制台】open {display_addr}（按 Tab 或 ~ 打开控制台）",
-            "⚠️ 请使用游戏端口（ASA默认7777）"
         ]
+        if display_addr:
+            lines += ["", "🔗 直连方式：", f"【控制台】open {display_addr}（按 Tab 或 ~ 打开控制台）",
+                      "⚠️ 请使用游戏端口（ASA默认7777）"]
         if usage:
             lines.extend(["", "📖 如何加入：", usage])
         lines.append(footer)
@@ -2790,13 +2807,15 @@ class ZeroARKPlugin(Star):
         own_id = str(qq)
         main_id = str(await self._resolve_identity(qq) or '')
         linked = bool(main_id) and main_id != own_id
+        # 公共区域（群/频道）一律打码，与 /我是谁 保持一致；完整 ID 只在私聊给
+        masked = bool(self._event_group_id(event))
         lines = [
             f"🆔 你的 {plat} 身份 ID：",
-            own_id,
+            self._mask_id(own_id) if masked else own_id,
         ]
         if linked:
             lines += [
-                f"🔗 已关联到主身份：{main_id}（两边共用绑定与签到）",
+                f"🔗 已关联到主身份：{self._mask_id(main_id) if masked else main_id}（两边共用绑定与签到）",
             ]
         lines += [
             "",
@@ -2809,6 +2828,8 @@ class ZeroARKPlugin(Star):
             "",
             "🔒 这串 ID 等于你的身份凭证，别发给别人。",
         ]
+        if masked:
+            lines += ["（公共区域已打码；要看完整的请私聊机器人再发 /我的ID，或找管理员核对）"]
         yield event.plain_result("\n".join(lines))
 
     @filter.command("我的ID")
@@ -3975,7 +3996,7 @@ class ZeroARKPlugin(Star):
                 continue  # 跳过机器人自己转发回来的带标记消息 / 无玩家ID的行
             m = QQBIND_RE.match(msg)
             if m:
-                if (self.config.get('game_bind') or {}).get('qq_cmd', True):
+                if (self.config.get('game_bind') or {}).get('qq_cmd', False):
                     await self._bind_by_qq_direct(m.group(1), game, pid, sender, pmap)
                 else:
                     # 通道已停用：留一条日志便于排查"玩家说在游戏里发了没反应"

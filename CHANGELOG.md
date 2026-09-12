@@ -2,6 +2,15 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.23.0] - 2026-09-12
+
+### 新增 / Added
+- **公共消息审计（用户红线：发往公共区域的内容必须先过审）**：新增发送前钩子，把每条要发出去的文本过一遍敏感模式 —— **身份 ID**（32 位 EOS/openid、17 位 SteamID64）、**内网 IP**（10./100./192.168./172.16-31.）、**验证码**（公共区域出现 `zsbind <码>`）、**密钥/口令**（`ark_*`/`sk-*`/`password=`）、以及**命中自己 `rcon_targets` 的端点**（对照实时表，不误报游戏直连地址）
+  - 模式 `public_msg_audit`：**`log`（默认，dry-run 只记 WARNING 不改内容）** / `redact`（命中即替换成 `***`）/ `off`
+  - 私聊只查"硬凭据"（密钥/口令），本人身份 ID 在私聊照常给全 —— 符合"公共区域打码、私聊可给"的既定规矩
+  - 干跑验证：正常回复（`/直连` 的 `host:port`、在线玩家列表）**零误报**；泄露 EOS/SteamID/内网 IP/RCON 端点/验证码都能稳定命中
+- Public-message audit before sending: scans outgoing text for identity IDs, internal IPs, verification codes, secrets and our own RCON endpoints (log-only by default, opt-in redaction), with zero false positives on normal replies
+
 ## [1.22.0] - 2026-09-12
 
 ### 新增 / Added

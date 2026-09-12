@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import hashlib
 import json
 import re
@@ -255,6 +255,9 @@ DEFAULT_CONFIG = {
     "plugin_msg_color": "0.2,0.85,1",       # 默认颜色 r,g,b（0~1）
     "plugin_msg_color_qq_official": "0.35,0.75,1",   # QQ 消息用蓝色
     "plugin_msg_color_kook": "0.75,0.5,1",  # KOOK 消息用紫色
+    # 公共消息审计（用户红线：发往公共区域的内容必须先过审）
+    # off=关闭 / log=只记日志（默认，dry-run 观察误报）/ redact=命中即自动打码
+    "public_msg_audit": "log",
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -499,7 +502,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.22.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.23.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2949,9 +2952,51 @@ class ZeroARKPlugin(Star):
             lines += ["", invite]
         return lines
 
+    # ==================== 公共消息审计（发往公共区域前先过一遍） ====================
+    AUDIT_ID_RE = re.compile(r'\b(?:[0-9A-Fa-f]{32}|7656\d{13})\b')          # EOS/openid、SteamID64
+    AUDIT_SECRET_RE = re.compile(r'\b(?:ark_|sk-)[A-Za-z0-9_\-]{16,}\b'
+                                 r'|\bpassword\b\s*[:=]\s*\S{4,}', re.IGNORECASE)
+    AUDIT_INTERNAL_RE = re.compile(
+        r'\b(?:10|100|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}(?:\.\d{1,3}){1,2}\b')
+    AUDIT_CODE_RE = re.compile(r'\bzsbind\s+\d{4,8}\b', re.IGNORECASE)      # 验证码不能出现在公共区域
+    AUDIT_ADDR_RE = re.compile(r'[A-Za-z0-9_.\-]+:\d{2,5}')
+
+    def _audit_public_text(self, text: str, is_public: bool) -> tuple:
+        """发往公共区域前的自审：返回 (命中的类别列表, 处理后的文本)。
+        log 模式只报告不改动；redact 模式把命中片段替换成 ***。私聊只查"硬凭据"。"""
+        mode = str(self.config.get('public_msg_audit') or 'log').strip().lower()
+        if mode in ('off', '0', 'false', 'no') or not text:
+            return [], text
+        do_mask = mode in ('redact', 'mask', 'block')
+        hits, out = [], text
+
+        checks = [('密钥/口令', self.AUDIT_SECRET_RE)]
+        if is_public:
+            # 直连地址是允许公开的，所以这里不搞"见 host:port 就报"，
+            # 只报内网 IP、身份 ID、验证码，以及**命中自己 rcon_targets 的端点**（下面单独判）
+            checks += [('身份ID', self.AUDIT_ID_RE), ('内网IP', self.AUDIT_INTERNAL_RE),
+                       ('验证码', self.AUDIT_CODE_RE)]
+        for name, rx in checks:
+            if rx.search(out):
+                hits.append(name)
+                if do_mask:
+                    out = rx.sub('***', out)
+
+        if is_public:
+            rcon_set = {f"{t.get('host')}:{t.get('port')}"
+                        for t in (self.rcon_targets or []) if t.get('host')}
+            if rcon_set:
+                for m in self.AUDIT_ADDR_RE.finditer(out):
+                    if m.group(0) in rcon_set:
+                        hits.append('RCON端点')
+                        if do_mask:
+                            out = out.replace(m.group(0), '***')
+                        break
+        return hits, out
+
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
-        """发送前钩子：①新人首次互动附一句欢迎引导；②所有回复底部补"对方社区"入口行"""
+        """发送前钩子：①新人欢迎；②补互推入口；③**公共消息审计**（红线：公共区域的内容先过审）"""
         try:
             result = event.get_result()
             if result is None or not getattr(result, 'chain', None):
@@ -2970,6 +3015,23 @@ class ZeroARKPlugin(Star):
                     if welcome:
                         result.chain.append(Plain("\n\n" + welcome))
                         logger.info(f"👋 首次互动欢迎: {self._mask_id(sid)}")
+
+            # ③ 公共消息审计（用户红线：发往公共区域的内容必须全部审核后才发送）
+            #    默认 log 模式：只记日志、不改内容（dry-run 观察是否有误报）；配置切 redact 才自动打码
+            try:
+                is_public = bool(self._event_group_id(event))
+                for comp in texts:
+                    hits, new_text = self._audit_public_text(comp.text, is_public)
+                    if hits:
+                        self._audit_hit_count = getattr(self, '_audit_hit_count', 0) + 1
+                        logger.warning(
+                            f"🔎 公共消息审计命中 {sorted(set(hits))}"
+                            f"（{'已自动打码' if new_text != comp.text else 'dry-run 仅记录'}）"
+                            f"，累计 {self._audit_hit_count} 次")
+                        if new_text != comp.text:
+                            comp.text = new_text
+            except Exception as e:
+                logger.debug(f"公共消息审计异常: {e}")
 
             # ② 互推入口行
             if not self.config.get('invite_on_reply', True):

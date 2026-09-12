@@ -2,6 +2,16 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.0] - 2026-09-12
+
+### 变更 / Changed
+- **跨游戏（飞升 ↔ 进化）转发改为富文本彩色**：原先这一步走纯文本 `serverchat`，现在装了彩色插件（`ZeroARKMsg`）的服务器走聊天栏富文本，例如
+  `ZeroARK: [飞升]【繁星】玩家: 内容`（来源游戏标签按游戏上色：飞升=蓝 `0.35,0.75,1`、进化=紫 `0.75,0.5,1`；地图灰、名字品青、内容亮黄）
+  - 新配置 **`game_relay_format`**（留空 = 退回纯文本）；占位符 `{tag} {tag_color} {map} {player} {message}`
+  - 未装插件的服务器**仍走 `serverchat` 纯文本**（不会丢消息）；新增日志 `🔀 跨游戏转发 → ASE/ASA：富文本 N 台 / 纯文本 M 台`
+- 抽出统一的 `_target_has_plugin()`（ASA 名单留空=全部、ASE 名单留空=不启用），供 QQ/KOOK→游戏 与 跨游戏转发 两处共用
+- Colored cross-game relay (飞升↔进化) via the chat channel, configurable with `game_relay_format`
+
 ## [1.28.0] - 2026-09-12
 
 ### 新增 / Added

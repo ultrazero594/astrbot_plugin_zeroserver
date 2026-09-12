@@ -269,6 +269,9 @@ DEFAULT_CONFIG = {
     "plugin_chat_sender": "",
     "plugin_chat_sender_qq_official": "",
     "plugin_chat_sender_kook": "",
+    # 游戏内「飞升 ↔ 进化」互转的样式：留空 = 退回纯文本 serverchat；支持 <RichColor> 富文本
+    # 占位符：{tag}=[飞升]/[进化] {tag_color}=来源游戏色 {map}=地图 {player}=玩家 {message}=内容
+    "game_relay_format": "<RichColor Color=\"{tag_color}\">{tag}</> <RichColor Color=\"0.65,0.65,0.65,1\">【{map}】</> <RichColor Color=\"0.3,1,0.85\">{player}: </> <RichColor Color=\"1,1,0.2\">{message}</>",
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -494,12 +497,15 @@ class CrossChatForwarder:
             sent_n = await self.plugin._broadcast(chat_text)
             if not sent_n:
                 logger.error("❌ 跨服聊天转发失败：没有任何目标发送成功")
-            # 2) 转发到另一个游戏（RCON serverchat），实现 飞升↔进化 游戏内互转
+            # 2) 转发到另一个游戏（飞升↔进化 游戏内互转；装了彩色插件的服走富文本）
             if target_ver:
-                await self._relay_to_game(target_ver, chat_text)
+                await self._relay_to_game(target_ver, chat_text,
+                                          src_id=src_id, server=server, player=player, content=content)
 
-    async def _relay_to_game(self, version: str, text: str):
-        """把消息通过 RCON serverchat 并发转发到指定版本（ASE/ASA）的所有服务器"""
+    async def _relay_to_game(self, version: str, text: str,
+                             src_id: str = '', server: str = '', player: str = '', content: str = ''):
+        """把消息转发到指定版本（ASE/ASA）的所有服务器，实现 飞升↔进化 游戏内互转。
+        装了彩色插件（ZeroARKMsg）的服走聊天栏富文本（game_relay_format），其余服仍用 serverchat 纯文本。"""
         if not self.plugin.rcon_password:
             logger.debug(f"RCON 密码未获取，跳过 {version} 游戏转发")
             return
@@ -508,12 +514,36 @@ class CrossChatForwarder:
         if not targets:
             logger.debug(f"没有 {version} 的 RCON 目标，跳过转发")
             return
-        await self.plugin._send_rcon_concurrent(targets, f"serverchat {self.plugin._game_safe(text)}")
+
+        tag = "[飞升]" if src_id == 'asa_chat' else "[进化]" if src_id == 'ase_chat' else "[跨服]"
+        tag_color = "0.35,0.75,1" if src_id == 'asa_chat' else "0.75,0.5,1"
+        fmt = str(self.plugin.config.get('game_relay_format') or '').strip()
+        rich = ''
+        if fmt and content:
+            try:
+                rich = fmt.format(tag=tag, tag_color=tag_color, map=server, player=player,
+                                  message=self.plugin._game_safe(content))
+            except Exception as e:
+                logger.error(f"game_relay_format 模板不合法（{e}），本条回退纯文本")
+
+        colored = [t for t in targets if self.plugin._target_has_plugin(t)]
+        plain = [t for t in targets if not self.plugin._target_has_plugin(t)]
+        if colored:
+            if rich:
+                sender = str(self.plugin.config.get('plugin_chat_sender') or '').strip()
+                chat_cmd = str(self.plugin.config.get('plugin_chat_cmd') or 'ZeroARKMsgChat').strip() or 'ZeroARKMsgChat'
+                await self.plugin._send_rcon_concurrent(
+                    colored, f"{chat_cmd} {sender}|{rich}" if sender else f"{chat_cmd} {rich}")
+            else:
+                await self.plugin._send_rcon_concurrent(colored, f"serverchat {self.plugin._game_safe(text)}")
+        if plain:
+            await self.plugin._send_rcon_concurrent(plain, f"serverchat {self.plugin._game_safe(text)}")
+        logger.info(f"🔀 跨游戏转发 → {version}：富文本 {len(colored)} 台 / 纯文本 {len(plain)} 台：{text[:40]}")
 
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.28.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1535,6 +1565,18 @@ class ZeroARKPlugin(Star):
             except Exception as e:
                 logger.error(f"❌ 检查缓存更新失败: {e}")
             await asyncio.sleep(interval)
+
+    def _target_has_plugin(self, t: dict) -> bool:
+        """这台 RCON 目标服务器有没有装彩色插件（决定走富文本还是纯文本）。
+        飞升(ASA)：plugin_msg_servers 留空 = 全部都有；进化(ASE)：plugin_msg_servers_ase 留空 = 都没有（插件要逐台装）。"""
+        name = str(t.get('name') or '').lower()
+        if 'ase' in name:
+            only_ase = [str(x).strip().lower() for x in (self.config.get('plugin_msg_servers_ase') or []) if str(x).strip()]
+            return bool(only_ase) and any(x in name for x in only_ase)
+        only = [str(x).strip().lower() for x in (self.config.get('plugin_msg_servers') or []) if str(x).strip()]
+        if not only:
+            return True
+        return any(x in name for x in only)
 
     def _rcon_run_one(self, host: str, port: int, command: str, timeout: float = None) -> str:
         """每条命令都单独开一条新连接再执行。
@@ -4652,19 +4694,8 @@ class ZeroARKPlugin(Star):
                 return
             # 只有装了彩色插件（ZeroARKMsg）的服务器才走彩色命令，其余服务器仍用 serverchat，
             # 避免"插件没装 → 命令不认 → 那条服一条消息都收不到"
-            only = [str(x).strip().lower() for x in (self.config.get('plugin_msg_servers') or []) if str(x).strip()]
-            only_ase = [str(x).strip().lower() for x in (self.config.get('plugin_msg_servers_ase') or []) if str(x).strip()]
-
-            def _has_plugin(t):
-                name = str(t.get('name') or '').lower()
-                if 'ase' in name:               # 进化(ASE)：插件要逐台装，名单留空 = 不启用（安全）
-                    return bool(only_ase) and any(x in name for x in only_ase)
-                if not only:
-                    return True                 # 飞升(ASA)：名单留空 = 全部走彩色/富文本
-                return any(x in name for x in only)
-
-            colored = [t for t in targets if _has_plugin(t)]
-            plain = [t for t in targets if not _has_plugin(t)]
+            colored = [t for t in targets if self._target_has_plugin(t)]
+            plain = [t for t in targets if not self._target_has_plugin(t)]
             # 聊天栏发送者名（机器人侧下发；插件 ≥ v1.0.5 才认 "名字|文本"，插件旧版会把它当文字，先留空）
             who = str(self.config.get(f'plugin_chat_sender_{platform_name}')
                       or self.config.get('plugin_chat_sender') or '').strip()

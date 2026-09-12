@@ -261,7 +261,8 @@ DEFAULT_CONFIG = {
     # 富文本（CCA 那种分段多色）：走 ZeroARKMsgChat（聊天栏通道，实测支持 <RichColor>）
     # 占位符：{c}=平台颜色 {tag}=前缀 {sender}=发送者 {message}=内容；留空则退回"整条单色"
     "plugin_chat_cmd": "ZeroARKMsgChat",
-    "plugin_chat_format": "<RichColor Color=\"{c}\">{tag} {sender}</> <RichColor Color=\"1,1,1,1\">{message}</>",
+    # 三段色：前缀按平台（{c}：QQ 蓝 / KOOK 紫）、名字金、内容白
+    "plugin_chat_format": "<RichColor Color=\"{c}\">{tag}</> <RichColor Color=\"1,0.9,0,1\">{sender}: </> <RichColor Color=\"1,1,1,1\">{message}</>",
     # 公共消息审计（用户红线：发往公共区域的内容必须先过审）
     # off=关闭 / log=只记日志（默认，dry-run 观察误报）/ redact=命中即自动打码
     "public_msg_audit": "log",
@@ -509,7 +510,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.25.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.25.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)

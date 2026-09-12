@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.1] - 2026-09-12
+
+### 变更 / Changed
+- 跨游戏转发的聊天栏发送者名改为可配（新配置 `game_relay_sender`，默认 `ZeroARK`）—— 之前转发过去的消息显示为插件默认的 `跨服:`，现在与 QQ/KOOK 侧统一为 `ZeroARK:`（留空则回退插件默认）
+- `game_relay_sender` for the cross-game relay (defaults to `ZeroARK`, matching the QQ/KOOK side)
+
 ## [1.29.0] - 2026-09-12
 
 ### 变更 / Changed

@@ -2,6 +2,18 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.27.0] - 2026-09-12
+
+### 移除 / Removed
+- **撤掉"公共消息审计"钩子**：`public_msg_audit` 配置项、`_audit_public_text()`、四个 `AUDIT_*_RE` 正则、`on_decorating_result` 里的 ③ 调用块全部移除。该功能源于一次误解（把"**发布到公共仓库前要审核**"当成了"给插件加发送前审计"），用户确认不需要
+
+### 修复 / Fixed
+- **`_claim_checkin` 不再把数据库异常伪装成"今天已签到"**：只有唯一键冲突（`duplicate` / `1062` / `unique` / `integrity`）才算已签过；其它异常记 ERROR 并向上抛，调用处回「❌ 签到登记失败（数据库异常），本次未加点」——之前 DB 故障会让玩家被无声拒绝、日志里也什么都没有
+- `_lookup_chat_player`：异常路径补 `finally` 关连接（原来查询失败会泄漏 MySQL 连接）
+- 新增 **`terminate()`**：插件被卸载/热重载时取消 `_background_tasks` 并注销 `check_updates` 定时任务，避免反复热重载累积
+- 清理死代码 `self._bot`、`LEGACY_BIND_HINT`；`logger.debug` 的 `%s` 占位改 f-string
+- `CMD_HINTS` 补上 `菜单 / 状态 / 我的ID`（之前这类词开头的群消息会被误判成闲聊、转发进游戏公屏）
+
 ## [1.26.1] - 2026-09-12
 
 ### 变更 / Changed

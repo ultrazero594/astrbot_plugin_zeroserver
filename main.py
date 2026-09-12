@@ -45,7 +45,6 @@ BIND_GUIDE = (
     "   （能私聊就私发给你；QQ 个人认证收不到私聊时会直接回在这里）\n"
     "③ 换绑：先发 /解绑 进化（或 /解绑 飞升），再用上面方式重新绑定\n"
     "🇶 老玩家注意：以前用 QQ 号绑定的记录已失效，重新绑定会自动接回你原来的账号。")
-LEGACY_BIND_HINT = BIND_GUIDE   # 兼容旧引用
 
 # ======================== 地图名称中英文映射（进化ASE/飞升ASA 分开；英文只保留地址表中出现的） ========================
 MAP_NAME_CN = {
@@ -267,9 +266,6 @@ DEFAULT_CONFIG = {
     "plugin_chat_sender": "",
     "plugin_chat_sender_qq_official": "",
     "plugin_chat_sender_kook": "",
-    # 公共消息审计（用户红线：发往公共区域的内容必须先过审）
-    # off=关闭 / log=只记日志（默认，dry-run 观察误报）/ redact=命中即自动打码
-    "public_msg_audit": "log",
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -514,7 +510,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.26.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.27.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -526,7 +522,6 @@ class ZeroARKPlugin(Star):
         self.last_rate_content = {}
         self.rcon_password = ""
         self.footer = f"\n\n🌐 官网：{self.config['official_site']}"
-        self._bot = None
         self.rcon_targets = []
         self._last_llm_reply_time = 0
         self._signin_lock = asyncio.Lock()
@@ -947,8 +942,27 @@ class ZeroARKPlugin(Star):
             return s
         return f"{s[:head]}…{s[-tail:]}"
 
+    async def terminate(self):
+        """插件被卸载/热重载时清理：取消后台任务、注销定时任务（否则反复热重载会累积）"""
+        try:
+            for t in list(getattr(self, '_background_tasks', []) or []):
+                try:
+                    if not t.done():
+                        t.cancel()
+                except Exception:
+                    pass
+            try:
+                if hasattr(self.context, 'scheduler'):
+                    self.context.scheduler.remove_job('check_updates')
+            except Exception:
+                pass
+            logger.info("🧹 插件已停止：后台任务已取消、定时任务已注销")
+        except Exception as e:
+            logger.debug(f"terminate 清理异常: {e}")
+
     # 群里"没 @机器人 就发指令"时用于识别并提示的命令名
-    CMD_HINTS = ("绑定", "解绑", "查绑定", "签到", "在线玩家", "在线", "谁在线", "进化", "飞升", "查服",
+    CMD_HINTS = ("绑定", "解绑", "查绑定", "签到", "在线玩家", "在线", "谁在线", "菜单", "状态", "我的ID",
+                 "我的id", "进化", "飞升", "查服",
                  "倍率", "直连", "帮助", "我是谁", "代加点", "加点", "rcon", "测试推送", "更新地址",
                  "bind", "unbind", "mybind", "signin", "players", "help", "whoami", "关联", "link")
 
@@ -2964,51 +2978,9 @@ class ZeroARKPlugin(Star):
             lines += ["", invite]
         return lines
 
-    # ==================== 公共消息审计（发往公共区域前先过一遍） ====================
-    AUDIT_ID_RE = re.compile(r'\b(?:[0-9A-Fa-f]{32}|7656\d{13})\b')          # EOS/openid、SteamID64
-    AUDIT_SECRET_RE = re.compile(r'\b(?:ark_|sk-)[A-Za-z0-9_\-]{16,}\b'
-                                 r'|\bpassword\b\s*[:=]\s*\S{4,}', re.IGNORECASE)
-    AUDIT_INTERNAL_RE = re.compile(
-        r'\b(?:10|100|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}(?:\.\d{1,3}){1,2}\b')
-    AUDIT_CODE_RE = re.compile(r'\bzsbind\s+\d{4,8}\b', re.IGNORECASE)      # 验证码不能出现在公共区域
-    AUDIT_ADDR_RE = re.compile(r'[A-Za-z0-9_.\-]+:\d{2,5}')
-
-    def _audit_public_text(self, text: str, is_public: bool) -> tuple:
-        """发往公共区域前的自审：返回 (命中的类别列表, 处理后的文本)。
-        log 模式只报告不改动；redact 模式把命中片段替换成 ***。私聊只查"硬凭据"。"""
-        mode = str(self.config.get('public_msg_audit') or 'log').strip().lower()
-        if mode in ('off', '0', 'false', 'no') or not text:
-            return [], text
-        do_mask = mode in ('redact', 'mask', 'block')
-        hits, out = [], text
-
-        checks = [('密钥/口令', self.AUDIT_SECRET_RE)]
-        if is_public:
-            # 直连地址是允许公开的，所以这里不搞"见 host:port 就报"，
-            # 只报内网 IP、身份 ID、验证码，以及**命中自己 rcon_targets 的端点**（下面单独判）
-            checks += [('身份ID', self.AUDIT_ID_RE), ('内网IP', self.AUDIT_INTERNAL_RE),
-                       ('验证码', self.AUDIT_CODE_RE)]
-        for name, rx in checks:
-            if rx.search(out):
-                hits.append(name)
-                if do_mask:
-                    out = rx.sub('***', out)
-
-        if is_public:
-            rcon_set = {f"{t.get('host')}:{t.get('port')}"
-                        for t in (self.rcon_targets or []) if t.get('host')}
-            if rcon_set:
-                for m in self.AUDIT_ADDR_RE.finditer(out):
-                    if m.group(0) in rcon_set:
-                        hits.append('RCON端点')
-                        if do_mask:
-                            out = out.replace(m.group(0), '***')
-                        break
-        return hits, out
-
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent):
-        """发送前钩子：①新人欢迎；②补互推入口；③**公共消息审计**（红线：公共区域的内容先过审）"""
+        """发送前钩子：①新人欢迎；②补互推入口"""
         try:
             result = event.get_result()
             if result is None or not getattr(result, 'chain', None):
@@ -3027,23 +2999,6 @@ class ZeroARKPlugin(Star):
                     if welcome:
                         result.chain.append(Plain("\n\n" + welcome))
                         logger.info(f"👋 首次互动欢迎: {self._mask_id(sid)}")
-
-            # ③ 公共消息审计（用户红线：发往公共区域的内容必须全部审核后才发送）
-            #    默认 log 模式：只记日志、不改内容（dry-run 观察是否有误报）；配置切 redact 才自动打码
-            try:
-                is_public = bool(self._event_group_id(event))
-                for comp in texts:
-                    hits, new_text = self._audit_public_text(comp.text, is_public)
-                    if hits:
-                        self._audit_hit_count = getattr(self, '_audit_hit_count', 0) + 1
-                        logger.warning(
-                            f"🔎 公共消息审计命中 {sorted(set(hits))}"
-                            f"（{'已自动打码' if new_text != comp.text else 'dry-run 仅记录'}）"
-                            f"，累计 {self._audit_hit_count} 次")
-                        if new_text != comp.text:
-                            comp.text = new_text
-            except Exception as e:
-                logger.debug(f"公共消息审计异常: {e}")
 
             # ② 互推入口行
             if not self.config.get('invite_on_reply', True):
@@ -3828,7 +3783,9 @@ class ZeroARKPlugin(Star):
             conn.close()
 
     async def _claim_checkin(self, qq, game, day, points, server_name, player_id='') -> bool:
-        """先占坑（(qq,game,day) 唯一键防并发/防重复）；返回 False 表示今天已签过或冲突"""
+        """先占坑（(qq,game,day) 唯一键防并发/防重复）。
+        返回 False = 今天已签过（唯一键冲突，属正常）；**其它数据库异常一律抛出**，
+        绝不能把"数据库炸了"伪装成"已签到"（否则玩家会被无声地拒绝加点）。"""
         conn = await self._qq_db()
         try:
             cur = await conn.cursor()
@@ -3837,9 +3794,13 @@ class ZeroARKPlugin(Star):
                     "INSERT INTO qq_checkin (qq, game, player_id, day, points, server_name) "
                     "VALUES (%s,%s,%s,%s,%s,%s)",
                     (str(qq), game, str(player_id or '')[:64], day, int(points), (server_name or '')[:100]))
-            except Exception:
+            except Exception as e:
                 await conn.rollback()
-                return False
+                msg = f"{type(e).__name__}: {e}".lower()
+                if 'duplicate' in msg or '1062' in msg or 'unique' in msg or 'integrity' in msg:
+                    return False                      # 唯一键冲突 = 今天已签过，正常
+                logger.error(f"❌ 签到占坑失败（数据库异常，非重复签到）: qq={qq} game={game} day={day}: {type(e).__name__}: {e}")
+                raise                                 # 交给上层报错，不要冒充"已签到"
             await conn.commit()
             await cur.close()
             return True
@@ -3880,6 +3841,7 @@ class ZeroARKPlugin(Star):
         if not src:
             return None
         col = 'EOSid' if game == 'ASA' else 'SteamId'
+        conn = None
         try:
             conn = await aiomysql.connect(
                 host=src.get('host'), port=int(src.get('port', 3306)),
@@ -3890,11 +3852,16 @@ class ZeroARKPlugin(Star):
             await cur.execute(f"SELECT Sender, Map FROM `{tbl}` WHERE `{col}`=%s AND Sender<>'' ORDER BY Id DESC LIMIT 1", (pid,))
             row = await cur.fetchone()
             await cur.close()
-            conn.close()
             return row if row else None
         except Exception as e:
             logger.warning(f"查询聊天记录玩家信息失败: {e}")
             return None
+        finally:
+            if conn is not None:
+                try:
+                    await conn.ensure_closed()
+                except Exception:
+                    pass
 
     def _rcon_online_sync(self, host, port) -> bool:
         """探测某 RCON 目标是否在线可用"""
@@ -3968,8 +3935,13 @@ class ZeroARKPlugin(Star):
         target = await self._pick_online_rcon_target(game)
         if not target:
             return f"❌ {cn}当前没有在线服务器，本次未加点，请稍后重试"
-        if not await self._claim_checkin(main_qq, game, day, points, str(target.get('name', '')),
-                                         str(bind_row['player_id'])):
+        try:
+            claimed = await self._claim_checkin(main_qq, game, day, points, str(target.get('name', '')),
+                                                str(bind_row['player_id']))
+        except Exception as e:
+            logger.error(f"❌ 签到登记失败（数据库异常）: qq={qq} game={game}: {type(e).__name__}: {e}")
+            return f"❌ {cn}签到登记失败（数据库异常），本次未加点，请稍后重试"
+        if not claimed:
             return f"ℹ️ {cn}今天已签到过，明天再来吧"
         command = cmd_tpl.format(id=bind_row['player_id'], points=points)
         out = await self._exec_addpoints(target, command)
@@ -4536,7 +4508,7 @@ class ZeroARKPlugin(Star):
     # ======================== QQ->游戏 消息转发 ========================
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
-        logger.debug("🔍 on_message 被调用，事件类型: %s", type(event).__name__)
+        logger.debug(f"🔍 on_message 被调用，事件类型: {type(event).__name__}")
 
         if not isinstance(event, AstrMessageEvent):
             return

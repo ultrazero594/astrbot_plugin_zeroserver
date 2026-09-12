@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import hashlib
 import json
 import re
@@ -256,7 +256,7 @@ DEFAULT_CONFIG = {
     "plugin_msg_color_qq_official": "0.35,0.75,1",   # QQ 消息用蓝色
     "plugin_msg_color_kook": "0.75,0.5,1",  # KOOK 消息用紫色
     # 已经装了彩色插件 ZeroARKMsg 的服务器（按名字子串匹配，不区分大小写）；
-    # 名单内的走 ZeroARKMsgSend 上色，名单外仍用 serverchat 纯文本（保证不会因为没装插件而漏消息）
+    # **留空 = 所有服务器都走彩色**；填了名单则只有名单内的走彩色，名单外仍用 serverchat 纯文本
     "plugin_msg_servers": [],
     # 富文本（CCA 那种分段多色）：走 ZeroARKMsgChat（聊天栏通道，实测支持 <RichColor>）
     # 占位符：{c}=平台颜色 {tag}=前缀 {sender}=发送者 {message}=内容；留空则退回"整条单色"
@@ -514,7 +514,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.26.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.26.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -4669,7 +4669,9 @@ class ZeroARKPlugin(Star):
 
             def _has_plugin(t):
                 name = str(t.get('name') or '').lower()
-                return bool(only) and any(x in name for x in only)
+                if not only:
+                    return True     # 名单留空 = 所有服务器都走彩色/富文本（全服生效）
+                return any(x in name for x in only)
 
             colored = [t for t in targets if _has_plugin(t)]
             plain = [t for t in targets if not _has_plugin(t)]

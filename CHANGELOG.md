@@ -2,6 +2,13 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.26.1] - 2026-09-12
+
+### 变更 / Changed
+- **`plugin_msg_servers` 留空 = 全部服务器走彩色/富文本**（此前留空会被当成"名单为空→全部退回纯文本"，语义反了，已修正）。现在 15 台飞升服的插件（v1.0.5）全部加载完毕，线上留空即**全服彩色**
+- 聊天栏发送者名启用机器人侧下发：`plugin_chat_sender_qq_official` / `plugin_chat_sender_kook`（默认 `ZeroARK`），游戏内显示由 `跨服: …` 变为 `ZeroARK: …`
+- Empty `plugin_msg_servers` now means **all servers** (it previously meant none); chat sender name is now sent from the bot side (`ZeroARK`)
+
 ## [1.26.0] - 2026-09-12
 
 ### 变更 / Changed

@@ -2,6 +2,20 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.26.0] - 2026-09-12
+
+### 变更 / Changed
+- **配色切到 P2**（用户选定）：名字**品青** `0.3,1,0.85`、内容**亮黄** `1,1,0.2`，前缀仍按平台（QQ 蓝 / KOOK 紫）
+  - `plugin_chat_format = <RichColor Color="{c}">{tag}</> <RichColor Color="0.3,1,0.85">{sender}: </> <RichColor Color="1,1,0.2">{message}</>`
+- **聊天栏发送者名支持机器人侧下发**：新增 `plugin_chat_sender`（全局）/ `plugin_chat_sender_qq_official` / `plugin_chat_sender_kook`（按平台覆盖），下发格式 `ZeroARKMsgChat <名字>|<文本>`。**需配套插件 ≥ v1.0.5**（旧版会把"名字|"当正文），线上暂留空，等插件升级后再填
+- P2 palette (cyan name / bright-yellow message) plus bot-side chat-sender config (needs plugin ≥ v1.0.5; kept empty until then)
+
+## [1.25.1] - 2026-09-12
+
+### 变更 / Changed
+- 三段色设为默认格式：`plugin_chat_format = <RichColor Color="{c}">{tag}</> <RichColor Color="1,0.9,0,1">{sender}: </> <RichColor Color="1,1,1,1">{message}</>`（前缀按平台 / 名字金 / 内容白），实测三种平台组合全部正确渲染；并在**真实 QQ/KOOK 消息**上验证通过
+- Three-segment default format (platform-colored prefix / gold name / white message), verified with real QQ & KOOK messages
+
 ## [1.25.0] - 2026-09-12
 
 ### 新增 / Added

@@ -4,7 +4,7 @@
 
 - **服务器查询**：在线状态 / 在线人数 / 地图 / 倍率 / 直连地址，支持自动与手动刷新
 - **跨服聊天转发**：进化 ↔ 飞升 ↔ QQ 群实时互转（需要游戏聊天入库）
-- **QQ ↔ 游戏账号绑定**：QQ 内直接绑定、游戏公屏 `qqbind` / 验证码 `zsbind` 绑定
+- **QQ ↔ 游戏账号绑定**：QQ 内直接绑定（飞升填**商店页面看到的 EOS ID**）、或游戏公屏验证码 `zsbind` 绑定
 - **每日签到**：给绑定的游戏账号发放商店点数（进化/飞升各自独立、每天一次、只加一次）
 - **可选的 LLM 引导助手**：@机器人或命中触发词时，用大模型引导玩家使用指令
 - **缓存版本更新提醒**：定时抓取更新包列表并通知
@@ -48,7 +48,7 @@ astrbot_plugin_zeroserver/
 
  后台常驻任务：
   ├─ 聊天转发器  轮询 db_sources(asa_chat/ase_chat 的 cross_chat) → QQ 群 + 对端游戏 RCON
-  ├─ 游戏内绑定监听 同上轮询 → 识别公屏 qqbind/zsbind → 写 qq_bind 并通知
+  ├─ 游戏内绑定监听 同上轮询 → 识别公屏 zsbind（qqbind 默认停用）→ 写 qq_bind 并通知
   ├─ 倍率/地址/缓存检测 定时抓取 → 变动时广播/通知
   └─ LLM 引导（可选）  @机器人或触发词 → 调大模型 → 引导玩家使用指令
 ```
@@ -86,7 +86,7 @@ astrbot_plugin_zeroserver/
 ### 游戏内（在游戏公屏输入，走聊天库监听）
 | 指令 | 作用 |
 | --- | --- |
-| `qqbind <你的QQ号>` | 把当前游戏账号绑到该 QQ（该 QQ 未绑过此游戏时） |
+| `zsbind <验证码>` | 先在 QQ/KOOK 发 `/绑定 <进化\|飞升> 开绑` 拿 6 位验证码，再到游戏公屏发它 → 完成绑定/换绑 |
 | `zsbind <验证码>` | 用 QQ 里 `开绑` 拿到的验证码完成绑定/换绑 |
 
 > 商店聊天指令（`/points`、`/shop`、`/buy` 等）由游戏内 **ArkShop** 插件提供，本机器人不处理。
@@ -132,7 +132,7 @@ astrbot_plugin_zeroserver/
 1. AstrBot WebUI → **机器人 → 新建 → QQ 官方机器人（WebSocket）**（推荐“扫码一键创建”，自动写入 appid/secret）；
 2. 手机 QQ 的群机器人设置里开启 **获取群内全部消息** 与 **机器人主动在群聊内发言**（否则收不到非 @ 消息、也发不出主动通知）；
 3. **openid 说明**：官方机器人无法获取真实 QQ 号，用户标识是 openid（私聊 `user_openid`、群 `member_openid`）。`owner_qq`、`whitelist_groups`、`notify_group`、`update_notify_qq` 都填 openid，可用 `/我是谁` 获取；实测同一用户的群/私聊 openid 一致，可直接用发送者 ID 作统一身份；
-4. **绑定方式**：官方渠道下游戏内 `qqbind <QQ号>` 不可用（QQ 号无法映射为 openid），请用验证码流程：QQ 里 `/绑定 飞升 开绑` → 游戏公屏 `zsbind <验证码>`；
+4. **绑定方式**：推荐**直接绑定**——飞升填商店页面看到的 `EOS ID`（32 位），进化填 `SteamID64`（17 位）：`/绑定 飞升 <EOS>`；不想找 ID 就用验证码流程：QQ 里 `/绑定 飞升 开绑` → 游戏公屏 `zsbind <验证码>`；
 5. **数据库自动迁移**：插件启动会检测 `qq_bind`/`qq_checkin` 的 `qq` 列，自动把 `BIGINT` 改为 `VARCHAR(64)`，并给 `qq_bind` 增加 `platform` 列（账号需 ALTER 权限）。若检测到 `platform` 为空且主键是纯数字 QQ 号的旧绑定（OneBot 时代遗留），会标记为 `legacy` 并在启动日志提示条数——这些记录在 openid 下无法直接命中，玩家按第 4 步重新走一次游戏内验证绑定后，插件会按游戏 ID 自动接回原记录；
 6. 指令面板 / 自定义菜单可通过开放平台 API 配置：见 [docs/qqofficial-commands.md](docs/qqofficial-commands.md)。
 
@@ -206,7 +206,7 @@ astrbot_plugin_zeroserver/
 | 键 | 类型/示例 | 说明 |
 | --- | --- | --- |
 | `game_bind.enable` | `true` | 游戏内绑定监听总开关 |
-| `game_bind.qq_cmd` | `true` | 允许公屏 `qqbind <QQ号>`（该 QQ 已绑过其它号时拒绝，防冒绑） |
+| `game_bind.qq_cmd` | `false` | 是否允许公屏 `qqbind <身份ID>`（默认关闭：要在公屏暴露身份 ID，有冒绑风险；想启用置 `true`） |
 | `game_bind.code_cmd` | `true` | 允许 QQ 内 `开绑` 验证码流程（`zsbind`） |
 | `game_bind.poll_interval` | `1.5` | 监听聊天库的轮询秒数 |
 | `game_bind.code_ttl_seconds` | `180` | 验证码有效期 |
@@ -292,7 +292,7 @@ CREATE TABLE IF NOT EXISTS chat_db.cross_chat (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 关键点：
-- **必须带玩家 ID 列**：飞升写入 `EOSid`、进化写入 `SteamId`，否则“游戏内绑定（qqbind/zsbind）”无法取到账号 ID；
+- **必须带玩家 ID 列**：飞升写入 `EOSid`、进化写入 `SteamId`，否则“游戏内验证码绑定（zsbind）”无法取到账号 ID；
 - `Message` 存纯聊天文本（机器人转发回的消息会带 `[QQ群]` 等前缀，插件据此跳过防循环）；
 - 权限：聊天账号至少 `SELECT`；`qq` 库账号建议 `SELECT/INSERT/UPDATE/DELETE/CREATE`（绑定/签到读写 + 自动建表）。
 
@@ -315,7 +315,7 @@ CREATE TABLE IF NOT EXISTS chat_db.cross_chat (
 - **机器人没有回复 / LLM 不生效**：确认 `llm_enabled: true`、`llm_api_url` 与 `llm_model` 匹配、Key 正确；智谱免费档限流(429)会由插件自动退避重试。
 - **签到显示“无在线服务器”**：该版本所有 RCON 目标都连不上，请检查 `rcon_html_url` 抓取与 RCON 连通性。
 - **加了点但 /points 没变**：核对 `signin.*_cmd` 命令模板与商店插件版本是否一致；看日志里 `cmd=` 与 `resp=`。
-- **游戏内 qqbind 没反应**：确认聊天已写入 `db_sources` 对应表且行内含 `EOSid/SteamId`；绑定监听启动日志应显示源与水位线。
+- **游戏内 `zsbind` 没反应**：确认聊天已写入 `db_sources` 对应表且行内含 `EOSid/SteamId`；绑定监听启动日志应显示源与水位线；验证码 180 秒有效。（`qqbind` 通道默认关闭，开了才有反应）
 - **绑定验证码收不到**：机器人私聊需玩家加好友或曾主动私聊；可在 `game_bind.dm_fallback` 开启群公告兜底（验证码仍不会发群）。
 
 ---
@@ -323,7 +323,7 @@ CREATE TABLE IF NOT EXISTS chat_db.cross_chat (
 ## 安全提示
 - `config.json` 会包含数据库密码 / API Key：**不要提交到公开仓库**，发布示例请清空为占位/空值（本模板已如此处理，本地使用再填写）。
 - `owner_qq` 只影响管理命令；管理命令仅私聊生效。
-- 验证码绑定（`zsbind`）能证明“QQ 与游戏账号同属一人”，用于已绑定号换绑；`qqbind` 仅限未绑定状态，防他人抢绑。
+- 验证码绑定（`zsbind`）能证明“QQ 与游戏账号同属一人”，用于已绑定号换绑；旧 `qqbind` 通道按"未绑定才允许"防抢绑，现默认关闭。
 
 ## License
 [MIT](./LICENSE)

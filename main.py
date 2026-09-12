@@ -38,12 +38,12 @@ FOOTER_ASA = "\n\n"
 BIND_GUIDE = (
     "\n\n📝 绑定方式（选一种即可）：\n"
     "① 直接绑定（推荐，随时可用、不需要私聊）：\n"
-    "   /绑定 进化 <SteamID64 17位数字>　或　/绑定 飞升 <EOS 32位hex>\n"
-    "② 游戏内绑定（不知道 EOS/SteamID 时用这个）：\n"
-    "   先发 /我的ID 查到你自己那串身份 ID → 进游戏公屏发：qqbind <那串ID>\n"
-    "③ 验证码开绑：/绑定 进化 开绑 → 拿 6 位验证码 → 游戏公屏发：zsbind <验证码>\n"
+    "   /绑定 飞升 <EOS 32位ID>　或　/绑定 进化 <SteamID64 17位数字>\n"
+    "   · 飞升的 EOS ID 在商店页面就能看到\n"
+    "② 验证码绑定（不知道上面那串 ID、或要换绑时用这个）：\n"
+    "   /绑定 进化 开绑 → 拿 6 位验证码 → 进游戏公屏发：zsbind <验证码>\n"
     "   （能私聊就私发给你；QQ 个人认证收不到私聊时会直接回在这里）\n"
-    "④ 换绑：先发 /解绑 进化（或 /解绑 飞升），再用上面方式重新绑定\n"
+    "③ 换绑：先发 /解绑 进化（或 /解绑 飞升），再用上面方式重新绑定\n"
     "🇶 老玩家注意：以前用 QQ 号绑定的记录已失效，重新绑定会自动接回你原来的账号。")
 LEGACY_BIND_HINT = BIND_GUIDE   # 兼容旧引用
 
@@ -195,6 +195,8 @@ RELAY_SKIP_MARKERS = ("[飞升]", "[进化]", "[QQ群]", "[KOOK]", "[跨服]", "
 # qqbind 既接受老式 QQ 号（5-12 位数字），也接受 QQ 官方机器人的 openid（32 位 hex 之类）
 QQBIND_RE = re.compile(r'^\s*qqbind\s+([A-Za-z0-9_-]{5,64})\s*$', re.IGNORECASE)
 ZSBIND_RE = re.compile(r'^\s*zsbind\s+([a-z0-9]{4,12})\s*$', re.IGNORECASE)
+# 识别用（宽松版）：玩家可能漏打空格（如 qqbind22C5F7CC…），也要算绑定指令、不能转发到群里
+BIND_CHAT_RE = re.compile(r'^\s*(?:qqbind|zsbind)\s*[A-Za-z0-9_-]{4,64}\s*$', re.IGNORECASE)
 
 def _is_direct_game_chat(text: str) -> bool:
     """是否机器人转发回来（含转发标记）的消息：是则不是玩家直接在游戏里输入的"""
@@ -206,13 +208,13 @@ def _is_bind_chat(text: str) -> bool:
     """判断是否为游戏内绑定指令消息（qqbind/zsbind），用于转发时静默吞掉、仅由绑定监听消费"""
     if not text or not _is_direct_game_chat(text):
         return False
-    return bool(QQBIND_RE.search(text) or ZSBIND_RE.search(text))
+    return bool(BIND_CHAT_RE.search(text))
 
 # 游戏内指令提示（帮助/签到成功/更新地址等处复用）
 GAME_CMD_TIPS = (
     "【游戏内绑定（在游戏公屏输入）】\n"
-    "· qqbind <身份ID> —— 先 /我的ID 查到自己那串 ID，复制到游戏公屏发 qqbind <它> 即可绑定\n"
-    "· zsbind <验证码> —— 先 QQ/KOOK 里发 /绑定 <进化|飞升> 开绑 拿 6 位验证码，再到游戏里输入完成绑定/换绑\n"
+    "· zsbind <验证码> —— 先在 QQ/KOOK 里发 /绑定 <进化|飞升> 开绑 拿 6 位验证码，"
+    "再到游戏公屏发 zsbind <验证码>，即可完成绑定/换绑\n"
     "绑定后可用 /signin 每日签到领点数"
 )
 
@@ -270,6 +272,8 @@ DEFAULT_CONFIG = {
     "qq_keyboard_template_id": "",
     # 私聊发不出验证码时，是否允许把验证码直接发在群/频道里（QQ 个人认证收不到私聊，只能这样）
     "bind_code_public_fallback": True,
+    # 玩家从哪儿查自己的游戏 ID（写进绑定帮助文案；商店页面能看到飞升的 EOS）
+    "id_source_hint": "飞升的 EOS 32 位 ID：在商店页面就能看到；进化用 SteamID64（17 位数字，7656119 开头）",
     # KOOK 卡片按钮补丁（AstrBot 默认丢弃 message_btn_click；打开后点卡片按钮=执行对应指令）
     "kook_button_patch": True,
     # 没装 ArkShop 插件的服务器（按名字子串匹配，不区分大小写）：加点、倍率刷新等 ArkShop 命令会跳过它们
@@ -297,7 +301,9 @@ DEFAULT_CONFIG = {
     },
     "game_bind": {
         "enable": True,
-        "qq_cmd": True,
+        # 游戏内 qqbind <身份ID> 通道：默认关闭（在公屏贴身份 ID 有冒绑风险，
+        # 现在有"直接发 EOS/SteamID"和"6 位验证码 zsbind"两条更安全的绑定路；置 true 可重新启用）
+        "qq_cmd": False,
         "code_cmd": True,
         "poll_interval": 1.5,
         "code_ttl_seconds": 180,
@@ -488,7 +494,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.19.4", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.20.0", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -2773,8 +2779,7 @@ class ZeroARKPlugin(Star):
             yield r
 
     async def _myid_cmd(self, event):
-        """查自己的身份 ID（完整，专门给"去游戏里 qqbind 绑定"用；QQ 官方下私聊不可用，只能在会话里给全）
-        优先给**当前平台自己的 ID**；若已用 /关联 打通，再附一行主身份（两串 qqbind 都能用）。"""
+        """查自己的身份 ID（用于 /关联 打通多平台、以及与客服核对身份；绑定游戏账号请用 /绑定 <游戏> <ID>）"""
         if not self._check_whitelist(event):
             return
         qq = self._sender_qq(event)
@@ -2792,16 +2797,17 @@ class ZeroARKPlugin(Star):
         if linked:
             lines += [
                 f"🔗 已关联到主身份：{main_id}（两边共用绑定与签到）",
-                f"　 游戏里 qqbind 上面两串**都行**，用你自己这串最直观。",
             ]
         lines += [
             "",
-            "用法（不用私聊验证码，最省事）：",
-            "1️⃣ 复制上面那串 ID",
-            f"2️⃣ 进游戏，在公屏（聊天框）发：qqbind {own_id}",
-            "3️⃣ 机器人会私聊/回你绑定结果，之后就能 /签到",
+            "这串 ID 的用途：",
+            "· /关联 开码 → 在另一个平台发 /关联 <码>，把 QQ 与 KOOK 打通",
+            "· 排查绑定/签到问题时给管理员核对身份",
             "",
-            "🔒 这串 ID 等于你的身份凭证，别发给别人（别人拿去可能替你绑定/解绑）。",
+            self.config.get('id_source_hint')
+            or "绑定游戏账号：/绑定 飞升 <EOS 32位ID>（商店页面能看到）或 /绑定 进化 <SteamID64>",
+            "",
+            "🔒 这串 ID 等于你的身份凭证，别发给别人。",
         ]
         yield event.plain_result("\n".join(lines))
 
@@ -2844,16 +2850,15 @@ class ZeroARKPlugin(Star):
         elif sec in ('绑定', '账号', 'bind', 'signin'):
             lines = [
                 "📖 绑定 / 签到",
-                "· /绑定 进化 <SteamID64> ｜ /绑定 飞升 <EOS 32位hex> → 直接绑定（推荐）",
-                "· /我的ID → 查你的身份 ID（游戏公屏发 qqbind <ID> 即可绑定）",
-                "· /绑定 <进化|飞升> 开绑 → 拿 6 位验证码 → 游戏公屏 zsbind <验证码>",
+                "· /绑定 飞升 <EOS 32位ID> ｜ /绑定 进化 <SteamID64> → 直接绑定（推荐）",
+                "·   飞升的 EOS ID 在商店页面就能看到",
+                "· /绑定 <进化|飞升> 开绑 → 拿 6 位验证码 → 游戏公屏 zsbind <验证码>（换绑也走这条）",
                 "· 换绑：先 /解绑 <进化|飞升>，再重新绑定",
                 f"· /签到 → 每日领点数（进化 +{ase_pts} / 飞升 +{asa_pts}，每天各一次）",
                 "· /查绑定 → 查看我的绑定 ｜ /解绑 <进化|飞升> → 解除绑定",
                 "· /关联 → QQ ↔ KOOK 身份打通（同一游戏账号自动关联，也可 /关联 开码 手动）",
                 "· 一个游戏账号每天只加一次点数（两边都签到也不会双倍）",
             ]
-            lines.append("· 游戏内也能绑：/我的ID 查身份 ID → 游戏公屏发 qqbind <ID>")
         elif sec in ('管理', 'admin', 'owner'):
             if not show_admin_help:
                 lines = ["ℹ️ 管理指令只有主人可见：请在私聊机器人里发 /帮助 管理"]
@@ -3972,6 +3977,9 @@ class ZeroARKPlugin(Star):
             if m:
                 if (self.config.get('game_bind') or {}).get('qq_cmd', True):
                     await self._bind_by_qq_direct(m.group(1), game, pid, sender, pmap)
+                else:
+                    # 通道已停用：留一条日志便于排查"玩家说在游戏里发了没反应"
+                    logger.info(f"⏭️ 游戏内 qqbind 已停用（game_bind.qq_cmd=false），忽略 [{sender}] 的绑定请求")
                 continue
             m = ZSBIND_RE.match(msg)
             if m:
@@ -4069,11 +4077,9 @@ class ZeroARKPlugin(Star):
         game = self._parse_game(parts[1]) if len(parts) >= 2 else ""
         if len(parts) < 3 or not game:
             yield event.plain_result("用法：\n/bind 或 /绑定 <进化|飞升> <ID>\n"
+                                     "  飞升(ASA)填 EOS ID（32位，如 0002…）→ 在商店页面能看到\n"
                                      "  进化(ASE)填 SteamID64（17位数字，7656119开头）\n"
-                                     "  飞升(ASA)填 EOS ID（32位hex，如0002...）\n"
-                                     "或游戏内绑定（不用私聊）：\n"
-                                     "  方式1：/我的ID 查自己的身份 ID → 游戏公屏发 qqbind <那串ID>\n"
-                                     "  方式2：/绑定 <进化|飞升> 开绑 → 拿 6 位验证码 → 游戏公屏发 zsbind <验证码>\n"
+                                     "不知道自己的 ID / 要换绑：/绑定 <进化|飞升> 开绑 → 拿 6 位验证码 → 游戏公屏发 zsbind <验证码>\n"
                                      "绑定后可用 /签到 每天领一次点数（进化+50 / 飞升+50，各游戏每天一次）")
             return
         # 验证码开绑：/绑定 <游戏> 开绑|验证码|code|换绑
@@ -4110,8 +4116,7 @@ class ZeroARKPlugin(Star):
                 yield event.plain_result(
                     "❌ 验证码私发失败：机器人无法私聊到你。\n"
                     "· QQ 开放平台的「允许被其他 QQ 用户添加使用」目前只对企业开发者灰度开放，个人认证账号开不了 → 普通玩家收不到私聊\n"
-                    "· 请改用直接绑定（无需私聊）：/绑定 飞升 <EOS 32位hex>　或　/绑定 进化 <SteamID64>\n"
-                    "· 走游戏内绑定：/我的ID 查自己的身份 ID → 游戏公屏发 qqbind <ID>\n"
+                    "· 请改用直接绑定（无需私聊）：/绑定 飞升 <EOS 32位ID>（商店页面能看到）　或　/绑定 进化 <SteamID64>\n"
                     "· 换绑：先 /解绑 飞升，再重新绑定")
                 return
             yield event.plain_result(

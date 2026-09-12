@@ -4,7 +4,7 @@ An [AstrBot](https://github.com/AstrBotDevs/AstrBot) plugin for **ARK: Survival 
 
 - **Server queries** — online status / player count / map / rates / direct-connect addresses, auto & manual refresh
 - **Cross-server chat relay** — ASE ⇄ ASA ⇄ QQ group in real time (requires game chat written into MySQL)
-- **QQ ↔ game account binding** — bind in QQ directly, or inside the game via `qqbind` / verification code `zsbind`
+- **QQ ↔ game account binding** — bind in QQ directly (ASA: the EOS ID shown on the shop page), or inside the game with the verification code `zsbind`
 - **Daily check-in** — grants shop points to the bound game account (ASE/ASA independent, once per day, exactly one grant)
 - **Optional LLM guide** — when @-mentioned or a trigger keyword matches, an LLM helps players use the commands
 - **Cache update notifications** — periodically polls a file list and notifies when new server builds appear
@@ -48,7 +48,7 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 
   Background loops:
    ├─ chat relay      polls db_sources (asa_chat/ase_chat.cross_chat) → QQ group + peer game RCON
-   ├─ bind watcher    polls the same tables → detects in-game `qqbind`/`zsbind` → writes qq_bind + notifies
+   ├─ bind watcher    polls the same tables → detects in-game `zsbind` (`qqbind` disabled by default) → writes qq_bind + notifies
    ├─ rate/cache watcher periodic scrape → broadcasts/notifies on changes
    └─ optional LLM guide  @bot or trigger keyword → calls the LLM → nudges players to use commands
 ```
@@ -87,7 +87,7 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 ### In game (type in game public chat; picked up from the chat DB)
 | Command | Effect |
 | --- | --- |
-| `qqbind <your QQ number>` | Bind the current game account to that QQ (only if that QQ is not bound to this game yet) |
+| `zsbind <code>` | Run `/绑定 <ASE\|ASA> 开绑` in QQ/KOOK to get a 6-digit code, then send it in game chat → binding/rebinding done |
 | `zsbind <code>` | Complete binding/rebinding with the code from `开绑` |
 
 > Shop chat commands (`/points`, `/shop`, `/buy`, ...) belong to the in-game **ArkShop** plugin, not this bot.
@@ -131,7 +131,7 @@ QQ group/DM ─▶│  command handlers: /help /ase /asa /ark /rate /bind /signi
 1. AstrBot WebUI → **Bots → Create → QQ official bot (WebSocket)** (the QR "one-click create" fills appid/secret automatically);
 2. In the mobile QQ group robot settings enable **receive all group messages** and **bot may speak proactively in groups**;
 3. **openid**: the official bot cannot obtain real QQ numbers — identities are openids (DM `user_openid`, group `member_openid`). Fill `owner_qq` / `whitelist_groups` / `notify_group` / `update_notify_qq` with openids (get yours via `/我是谁`). Empirically the same user has the same openid in group and DM;
-4. **Binding**: in-game `qqbind <QQ number>` is unusable on the official channel; use the code flow (`/绑定 飞升 开绑` → `zsbind <code>` in game chat);
+4. **Binding**: preferred path is direct binding — ASA takes the `EOS ID` (32-char, visible on the shop page), ASE takes `SteamID64` (17 digits): `/绑定 飞升 <EOS>`. Without the ID, use the code flow (`/绑定 飞升 开绑` → `zsbind <code>` in game chat);
 5. **Automatic DB migration**: on startup the plugin converts `qq` from `BIGINT` to `VARCHAR(64)` and adds a `platform` column to `qq_bind` (needs ALTER privilege);
 6. Command panels / custom menu can be configured via the open-platform API: see [docs/qqofficial-commands.md](docs/qqofficial-commands.md).
 
@@ -208,7 +208,7 @@ Example `db_sources`:
 | Key | Default | Description |
 | --- | --- | --- |
 | `game_bind.enable` | `true` | Master switch for in-game binding watcher |
-| `game_bind.qq_cmd` | `true` | Allow `qqbind <QQ>` in public chat (rejected if that QQ is already bound to another account — anti-squatting) |
+| `game_bind.qq_cmd` | `false` | Allow `qqbind <identity ID>` in public chat (off by default: it exposes your identity ID in public chat; set `true` to re-enable) |
 | `game_bind.code_cmd` | `true` | Allow verification-code flow (`开绑` in QQ then `zsbind` in game) |
 | `game_bind.poll_interval` | `1.5` | Watcher poll interval (seconds) |
 | `game_bind.code_ttl_seconds` | `180` | Code lifetime |

@@ -229,6 +229,11 @@ Example `db_sources`:
 | --- | --- |
 | `official_site` | Website shown at the bottom of some messages |
 | `check_interval_minutes` | Refresh interval for addresses/RCON/rates (minutes) |
+| `status_notify_enabled` | Master switch for server up/down notifications (default `true`) |
+| `status_check_interval_seconds` | Dedicated **status probe** interval in seconds (default `30`); only probes RCON, does not re-fetch data sources |
+| `status_notify_fail_threshold` | Consecutive probe failures before a server is marked offline (default `1`, most sensitive) |
+| `status_state_file` | Status snapshot file name (default `status_state.json`, stored in the plugin directory) |
+| `status_state_max_age_seconds` | Snapshots older than this (default `1800`) are treated as stale: after a restart it rebuilds silently without announcing |
 | `rcon_timeout` | RCON command timeout (seconds) |
 | `list_rcon_fallback` | `true` | Fall back to RCON for online status / player count when list queries (ASE A2S / ASA ARK Status) fail or report 0 players; set `false` if too slow |
 | `rcon_targets` | Manual targets `[{name, host, port}]` (can also be built automatically from `rcon_html_url`) |

@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import hashlib
 import json
 import re
@@ -209,6 +209,19 @@ def _is_bind_chat(text: str) -> bool:
         return False
     return bool(BIND_CHAT_RE.search(text))
 
+# 转发时静默吞掉：玩家指令（/ 开头，如 /商店 /买 /shop /kit）与插件自动消息（HLNA/商店提示）
+# 这些不是聊天内容，推给 QQ/KOOK 会刷屏（商店货单也不该外泄）
+GAME_CMD_RE = re.compile(r'^\s*/')
+GAME_NOISE_MARKERS = ("[HLNA]", "[HLNA商店]", "[商店]", "(服务器)", "[服务器]")
+
+def _is_cmd_or_noise(text: str) -> bool:
+    """是否属于"玩家指令"或"插件自动消息"：是则不进跨服转发"""
+    if not text:
+        return False
+    if any(mk in text for mk in GAME_NOISE_MARKERS):
+        return True
+    return bool(GAME_CMD_RE.match(text))
+
 # 游戏内指令提示（帮助/签到成功/更新地址等处复用）
 GAME_CMD_TIPS = (
     "【游戏内绑定（在游戏公屏输入）】\n"
@@ -274,6 +287,10 @@ DEFAULT_CONFIG = {
     "game_relay_format": "<RichColor Color=\"{tag_color}\">{tag}</> <RichColor Color=\"0.65,0.65,0.65,1\">【{map}】</> <RichColor Color=\"0.3,1,0.85\">{player}: </> <RichColor Color=\"1,1,0.2\">{message}</>",
     # 跨游戏转发时聊天栏显示的发送者名（留空 = 用插件里的默认"跨服"）
     "game_relay_sender": "ZeroARK",
+    # 只转发这些聊天频道（对应 CCA 表 cross_chat 的 Mode 字段）；留空 [] = 所有频道都转发
+    # 想"只在世界频道说话才互通"：设成 [0]（实测 Mode=0 占绝大多数、内容像世界频道；
+    # Mode=1 多为指令/短语）。拿不准就先留 []，然后日志里看 🚫 那行的 Mode 值再定。
+    "relay_modes": [],
     "cca_fallback_rcon": True,        # CCA 通道失败时回退 RCON，避免消息丢失
     # 主动消息目标（跨服聊天转发 / 通知 / 绑定结果 / 代加点公告）：[{platform,id,label}]
     # platform: qq_official | kook | aiocqhttp；留空则回退到 notify_group（QQ群）
@@ -290,8 +307,13 @@ DEFAULT_CONFIG = {
     "welcome_text": "👋 欢迎新朋友～发 /帮助 看我都会啥；/在线玩家 查在线，/签到 领点数",
     # 服务器上/下线提醒（按 RCON 探测结果，状态变化时推送到广播目标）
     "status_notify_enabled": True,
-    "status_notify_fail_threshold": 2,   # 连续失败几次才算离线（防抖）
+    "status_notify_fail_threshold": 1,   # 连续失败几次才算离线（防抖；1=最灵敏）
     "status_notify_limit": 8,            # 单条播报最多列几条变化
+    # 状态探测单独一条更快的定时（秒）：只做 RCON 探测，不重复抓数据源
+    "status_check_interval_seconds": 30,
+    # 状态快照落盘（抗 AstrBot 重启/热重载）；超过这个秒数视为过期，重启后只静默重建不播报
+    "status_state_file": "status_state.json",
+    "status_state_max_age_seconds": 1800,
     # QQ 开放平台申请到「消息按钮模板」后填模板 id（填了就用模板发送按钮，否则用内联按钮实验）
     "qq_keyboard_template_id": "",
     # 私聊发不出验证码时，是否允许把验证码直接发在群/频道里（QQ 个人认证收不到私聊，只能这样）
@@ -448,10 +470,23 @@ class CrossChatForwarder:
                     # 过滤掉"已转发"消息（含转发标记），防止跨服/跨QQ无限循环；绑定指令（qqbind/zsbind）也只由绑定监听消费，不再转发
                     # 另外跳过我们自己写进 CCA 表的行（Map = cca 标签），否则 QQ→游戏 的消息会被读回来又发回 QQ（回声）
                     _cca_labels = self.plugin._cca_labels()
+                    # 只转发指定聊天频道（relay_modes 为空 = 全部转发）
+                    _modes = self.plugin.config.get('relay_modes') or []
+                    try:
+                        _modes = [int(x) for x in _modes]
+                    except Exception:
+                        _modes = []
                     fresh = [m for m in messages
                              if not self._is_relayed(str(m.get('Message', '')))
                              and not _is_bind_chat(str(m.get('Message', '')))
+                             and not _is_cmd_or_noise(str(m.get('Message', '')))
+                             and (_modes == [] or m.get('Mode') in _modes)
                              and str(m.get('Map', '')) not in _cca_labels]
+                    if _modes:
+                        _by_mode = [m for m in messages if m.get('Mode') not in _modes]
+                        if _by_mode:
+                            logger.info(f"🚫 源 {src_id} 跳过 {len(_by_mode)} 条非指定频道消息"
+                                        f"（relay_modes={_modes}，例如 Mode={_by_mode[0].get('Mode')}）")
                     skipped = len(messages) - len(fresh)
                     if skipped:
                         logger.info(f"🔁 源 {src_id} 跳过 {skipped} 条已转发消息（防循环）")
@@ -472,7 +507,9 @@ class CrossChatForwarder:
             conn = await self._get_conn(src)
             cursor = await conn.cursor(aiomysql.DictCursor)
             table = src.get('table', 'cross_chat')
-            await cursor.execute(f"SELECT Id, Map, Sender, Message, timestamp FROM {table} WHERE Id > %s ORDER BY Id ASC", (last_id,))
+            # ⚠️ 必须把 Mode 一起查出来：relay_modes 过滤依赖它（漏查会导致 Mode=None → 全部被挡）
+            await cursor.execute(f"SELECT Id, Map, Sender, Message, Mode, isPm, PmRecipient, timestamp "
+                                 f"FROM {table} WHERE Id > %s ORDER BY Id ASC", (last_id,))
             rows = await cursor.fetchall()
             logger.debug(f"🔍 {src_id} 查询到 {len(rows)} 行 (last_id={last_id})")
             await cursor.close()
@@ -546,7 +583,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.1", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.5", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -598,6 +635,8 @@ class ZeroARKPlugin(Star):
         self._seen_users = None
         self._server_status = {}
         self._status_baseline_done = False
+        self._status_state_cache = ""
+        self._load_status_state()          # 抗重启：先恢复上次快照
         self._bind_chat_conns = {}
         self._background_tasks.append(asyncio.create_task(self._bind_watcher()))
 
@@ -763,14 +802,26 @@ class ZeroARKPlugin(Star):
         logger.info("使用说明缓存已更新")
 
     def _schedule_tasks(self):
-        if hasattr(self.context, 'scheduler'):
-            interval = self.config['check_interval_minutes'] * 60
+        # ⚠️ AstrBot 的 Context **没有** scheduler 属性（v4.27.5 实测确认），
+        # 所以这里统一用"后台 asyncio 循环"实现定时，不要再依赖 hasattr 判断（会静默失效）。
+        interval = max(60, int(float(self.config.get('check_interval_minutes', 10) or 10) * 60))
+        self._background_tasks.append(asyncio.create_task(self._updates_loop(interval)))
+        logger.info(f"🔄 地址/RCON/倍率定时刷新已启动：每 {interval // 60} 分钟")
+        # 服务器状态探测：更快的独立循环（默认 30 秒），只做 RCON 探测、不重复抓数据源
+        st_sec = max(10, int(self.config.get('status_check_interval_seconds', 30) or 30))
+        self._background_tasks.append(asyncio.create_task(self._status_probe_loop()))
+        logger.info(f"🖥️ 服务器状态探测定时已启动：每 {st_sec} 秒")
+
+    async def _updates_loop(self, interval: int):
+        """定时的地址/RCON/倍率刷新（原实现走 context.scheduler，该属性不存在 ⇒ 从来没跑过）。"""
+        while True:
             try:
-                # replace_existing：插件热重载时不再因同名 job 抛 ConflictingIdError
-                self.context.scheduler.add_job(self._check_updates, 'interval', seconds=interval,
-                                               id='check_updates', replace_existing=True)
+                await asyncio.sleep(interval)
+                await self._check_updates()
+            except asyncio.CancelledError:
+                break
             except Exception as e:
-                logger.error(f"定时任务注册失败（缓存更新检查）: {e}")
+                logger.debug(f"定时刷新循环异常: {e}")
 
     async def _check_updates(self):
         await self._fetch_servers()
@@ -778,6 +829,73 @@ class ZeroARKPlugin(Star):
         self._build_rcon_targets()
         await self._check_rate_update()
         await self._check_server_status()
+
+    def _status_state_path(self) -> str:
+        name = str(self.config.get('status_state_file') or 'status_state.json')
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+
+    def _load_status_state(self):
+        """从磁盘恢复上次的服务器状态快照（抗 AstrBot 重启/插件热重载）。
+        快照新鲜 → 直接沿用（恢复/离线照常播报）；快照过期 → 只静默重建不播报。"""
+        try:
+            path = self._status_state_path()
+            if not os.path.exists(path):
+                return
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            servers = data.get('servers') or {}
+            if not isinstance(servers, dict) or not servers:
+                return
+            self._server_status = {
+                k: {'online': v.get('online'), 'fails': int(v.get('fails') or 0)}
+                for k, v in servers.items() if isinstance(v, dict)
+            }
+            age = max(0, int(time.time() - float(data.get('saved_at') or 0)))
+            max_age = int(self.config.get('status_state_max_age_seconds', 1800) or 1800)
+            if age <= max_age:
+                self._status_baseline_done = True
+                logger.info(f"🖥️ 已恢复上次的服务器状态快照（{len(self._server_status)} 条，{age} 秒前）")
+            else:
+                logger.info(f"🖥️ 状态快照已过期（{age} 秒前），本轮只静默重建、不播报")
+        except Exception as e:
+            logger.debug(f"读取服务器状态快照失败: {e}")
+
+    def _save_status_state(self):
+        try:
+            payload = {
+                'saved_at': time.time(),
+                'servers': {k: {'online': v.get('online'), 'fails': v.get('fails', 0)}
+                            for k, v in (self._server_status or {}).items()},
+            }
+            blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            if blob == getattr(self, '_status_state_cache', ''):
+                return
+            path = self._status_state_path()
+            tmp = path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                f.write(blob)
+            os.replace(tmp, path)
+            self._status_state_cache = blob
+        except Exception as e:
+            logger.debug(f"写入服务器状态快照失败: {e}")
+
+    async def _status_probe_loop(self):
+        """独立的服务器状态探测循环（默认每 30 秒）：只做 RCON 探测 → 状态变化才播报。"""
+        st_sec = max(10, int(self.config.get('status_check_interval_seconds', 30) or 30))
+        first = True
+        while True:
+            try:
+                await asyncio.sleep(st_sec)
+                await self._check_server_status()
+                if first:
+                    known = self._server_status or {}
+                    on = sum(1 for v in known.values() if v.get('online'))
+                    logger.info(f"🖥️ 状态探测首轮完成：{on}/{len(known)} 在线（之后每 {st_sec} 秒一次，状态变化才播报）")
+                    first = False
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"状态探测循环异常: {e}")
 
     async def _check_server_status(self):
         """服务器上/下线监控：并发探测每个 RCON 目标，状态变化时推送到广播目标。
@@ -816,6 +934,7 @@ class ZeroARKPlugin(Star):
                 else:
                     st = {'online': st.get('online'), 'fails': fails}
             self._server_status[name] = st
+        self._save_status_state()
         first_round = not self._status_baseline_done
         self._status_baseline_done = True
         if first_round or not events:

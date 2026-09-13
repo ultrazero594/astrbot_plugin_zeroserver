@@ -2,6 +2,35 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.5] - 2026-09-14
+
+### 新增 / Added
+- **服务器上/下线提醒：更灵敏 + 抗重启**
+  - 新增配置 **`status_check_interval_seconds`（默认 `30`）**：状态探测用**独立的后台循环**，只做 RCON 探测（不再跟着 `check_interval_minutes` 一起抓服务器列表/RCON 页，避免把数据源打爆）
+  - **`status_notify_fail_threshold` 默认 `2` → `1`**：连续 1 次探测失败即判离线（最灵敏）
+  - **状态快照落盘**（新配置 `status_state_file` 默认 `status_state.json`、`status_state_max_age_seconds` 默认 `1800`）：插件的"在线/离线 + 防抖计数"会写到插件目录；AstrBot 重启/插件热重载后**直接从快照继续**，不再因重启把状态清零导致提醒永远攒不够阈值
+    - 快照新鲜（≤`status_state_max_age_seconds`）→ 沿用并按快照对比，恢复/离线照常播报；快照过期 → 只静默重建、不播报（避免长时间停机后一次性刷屏）
+    - 落盘做了"内容未变不写盘"的去重与临时文件原子替换
+- Faster, restart-proof up/down notifications: dedicated 30s status probe, fail threshold default 1, and a persisted status snapshot so plugin reloads/AstrBot restarts no longer reset the debounce state.
+
+## [1.29.4] - 2026-09-13
+
+### 修复 / Fixed
+- **修一个"转发彻底静默"的事故**：`relay_modes` 过滤依赖 CCA 聊天表 `cross_chat.Mode` 字段，但读消息的 SQL 没有把 `Mode` 一起查出来 ⇒ 该键恒为 `None` ⇒ 所有消息都被过滤、转发静默（飞升/进化全中）。现在 `SELECT` 明确带上 `Mode, isPm, PmRecipient`，并加了注释警示"改过滤条件必须同时改取数"
+- Fix silent relay outage: the SQL reader did not select `Mode`, so `relay_modes` filtering dropped every message; the SELECT now includes `Mode, isPm, PmRecipient`
+
+## [1.29.3] - 2026-09-13
+
+### 新增 / Added
+- **新配置 `relay_modes`**（默认 `[]` = 所有频道都转发）：只转发指定聊天频道（对应 `cross_chat.Mode`）；想"只在世界频道说话才互通"就设 `[0]`。被过滤的消息会打 `🚫 源 xxx 跳过 N 条非指定频道消息（relay_modes=[0]，例如 Mode=…）` 便于核对
+- New `relay_modes` option: forward only the listed chat modes (`[]` = all)
+
+## [1.29.2] - 2026-09-13
+
+### 新增 / Added
+- **跨服转发过滤"玩家指令与插件自动消息"**：以 `/` 开头的玩家指令（`/商店`、`/买`、`/kit` 等）与带插件标记的消息（`[HLNA]`、`[HLNA商店]`、`[商店]`、`(服务器)` 等）默认**不再推送到 QQ/KOOK**（这些不是聊天内容，会刷屏、也可能把商店货单外泄）；判定逻辑集中在 `_is_cmd_or_noise()`
+- Skip player commands and plugin-generated chatter in the cross-server relay (`/`-prefixed commands and messages carrying plugin markers)
+
 ## [1.29.1] - 2026-09-12
 
 ### 变更 / Changed

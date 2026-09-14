@@ -230,7 +230,7 @@ Example `db_sources`:
 | `official_site` | Website shown at the bottom of some messages |
 | `check_interval_minutes` | Refresh interval for addresses/RCON/rates (minutes) |
 | `status_notify_enabled` | Master switch for server up/down notifications (default `true`) |
-| `status_check_interval_seconds` | Dedicated **status probe** interval in seconds (default `5`, floor 2); probes RCON and measures round-trip latency only, no data-source re-fetch |
+| `status_check_interval_seconds` | Dedicated **status probe** interval in seconds (default `5`, floor 1); probes RCON and measures round-trip latency only, no data-source re-fetch |
 | `status_notify_fail_threshold` | Consecutive probe failures before a server is marked offline (default `2`; set `1` for max sensitivity, but a single hiccup then produces an offline+recovery pair) |
 | `status_slow_ms` | Treat an online server as **lagging** when RCON latency ≥ this many ms (default `1500`); announces on entering/leaving a lag episode, and aggregates as "likely host/network" when ≥4 servers are slow in one round |
 | `status_latency_file` | Latency log file name (default `status_latency.log`): one line per round — time \| online N/M \| slow N \| slowest `<name> <ms>`; rotates at 2MB |

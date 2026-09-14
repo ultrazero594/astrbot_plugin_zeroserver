@@ -2,6 +2,11 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.8] - 2026-09-15
+
+### 变更 / Changed
+- **探测间隔下限由 2 秒放宽到 1 秒**（`status_check_interval_seconds` 现在最小可设 `1`；默认值仍为 5，想 1 秒级监控就把它设成 1）—— 配合 `status_slow_ms` 能捕捉到 1 秒级的服务端停顿
+- Status probe floor lowered from 2s to 1s (`status_check_interval_seconds=1` now allowed; default stays 5)
 ## [1.29.7] - 2026-09-15
 
 ### 变更 / Changed

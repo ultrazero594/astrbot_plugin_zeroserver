@@ -587,7 +587,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.7", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.8", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -812,7 +812,7 @@ class ZeroARKPlugin(Star):
         self._background_tasks.append(asyncio.create_task(self._updates_loop(interval)))
         logger.info(f"🔄 地址/RCON/倍率定时刷新已启动：每 {interval // 60} 分钟")
         # 服务器状态探测：更快的独立循环（默认 30 秒），只做 RCON 探测、不重复抓数据源
-        st_sec = max(2, int(self.config.get('status_check_interval_seconds', 5) or 5))
+        st_sec = max(1, int(self.config.get('status_check_interval_seconds', 5) or 5))
         self._background_tasks.append(asyncio.create_task(self._status_probe_loop()))
         logger.info(f"🖥️ 服务器状态探测定时已启动：每 {st_sec} 秒")
 
@@ -885,7 +885,7 @@ class ZeroARKPlugin(Star):
 
     async def _status_probe_loop(self):
         """独立的服务器状态探测循环（默认每 30 秒）：只做 RCON 探测 → 状态变化才播报。"""
-        st_sec = max(2, int(self.config.get('status_check_interval_seconds', 5) or 5))
+        st_sec = max(1, int(self.config.get('status_check_interval_seconds', 5) or 5))
         first = True
         while True:
             try:

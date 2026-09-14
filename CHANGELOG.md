@@ -2,6 +2,23 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.10] - 2026-09-15
+
+### 变更 / Changed
+- **卡顿告警改发私聊**：卡顿 / 卡顿恢复 / 「多台同时变慢」这类消息现在**私聊给主人（KOOK）**，不再进群/频道；**服务器上下线**（⚠️ 已离线 / ✅ 已恢复）仍发到 `broadcast_targets`（QQ 群 + KOOK 公共频道）
+  - 新配置 **`status_slow_pm_cooldown_seconds`（默认 `60`）**：冷却期内最多发一条卡顿私聊，避免 1 秒粒度下刷屏（`0` = 不限）
+  - 私聊收件人取 `lag_report_kook_id`，留空则用 `owner_ids[0]`
+- Lag alerts (enter/leave/aggregated) now go to a private KOOK DM with a cooldown, while up/down events keep going to the broadcast targets
+
+## [1.29.9] - 2026-09-15
+
+### 新增 / Added
+- **卡顿日报**：每天定时把「近 N 小时」的探测统计**私聊给主人（KOOK）**
+  - 新配置 `lag_report_enabled`（默认 `false`）、`lag_report_time`（默认 `12:00`）、`lag_report_hours`（默认 `24`）、`lag_report_kook_id`（留空用 `owner_ids[0]`）
+  - 日报内容：采样轮数、卡顿轮次与占比、最慢一台与峰值、**全站同时变慢（≥4 台）次数**、单台卡顿 Top5、当前最慢 / 当前离线
+  - 延迟日志每行新增 `慢:[名字,…]`（便于日报统计单台次数）；轮转阈值 2MB → 32MB（1 秒粒度下约留 6 天）
+- Daily lag report via private DM, plus per-server slow names in the latency log
+
 ## [1.29.8] - 2026-09-15
 
 ### 变更 / Changed

@@ -316,8 +316,13 @@ DEFAULT_CONFIG = {
     "status_state_max_age_seconds": 1800,
     # 卡顿监控：RCON 探测延迟 ≥ 这个毫秒数算"卡顿"（进入/离开卡顿各播报一次）
     "status_slow_ms": 1500,
-    # 每轮把"最慢的一台 + 慢的台数"追加到这个文件（超 512KB 轮转），用于事后对齐卡顿时间点
+    # 每轮把"最慢的一台 + 慢的台数"追加到这个文件（超阈值轮转），用于事后对齐卡顿时间点
     "status_latency_file": "status_latency.log",
+    # 卡顿日报：每天定时把"近 N 小时"的探测统计私聊给主人（KOOK）
+    "lag_report_enabled": False,
+    "lag_report_time": "12:00",
+    "lag_report_hours": 24,
+    "lag_report_kook_id": "",
     # QQ 开放平台申请到「消息按钮模板」后填模板 id（填了就用模板发送按钮，否则用内联按钮实验）
     "qq_keyboard_template_id": "",
     # 私聊发不出验证码时，是否允许把验证码直接发在群/频道里（QQ 个人认证收不到私聊，只能这样）
@@ -587,7 +592,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.8", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.10", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -815,6 +820,10 @@ class ZeroARKPlugin(Star):
         st_sec = max(1, int(self.config.get('status_check_interval_seconds', 5) or 5))
         self._background_tasks.append(asyncio.create_task(self._status_probe_loop()))
         logger.info(f"🖥️ 服务器状态探测定时已启动：每 {st_sec} 秒")
+        # 卡顿日报（默认关闭；开启后按 lag_report_time 私聊给主人）
+        if self.config.get('lag_report_enabled'):
+            self._background_tasks.append(asyncio.create_task(self._lag_report_loop()))
+            logger.info(f"🐢 卡顿日报已启用：每天 {self.config.get('lag_report_time') or '12:00'} 私聊给主人")
 
     async def _updates_loop(self, interval: int):
         """定时的地址/RCON/倍率刷新（原实现走 context.scheduler，该属性不存在 ⇒ 从来没跑过）。"""
@@ -901,6 +910,97 @@ class ZeroARKPlugin(Star):
             except Exception as e:
                 logger.debug(f"状态探测循环异常: {e}")
 
+    def _lag_report_target(self) -> str:
+        tid = str(self.config.get('lag_report_kook_id') or '').strip()
+        if tid:
+            return tid
+        ids = self.config.get('owner_ids') or []
+        return str(ids[0]) if ids else ''
+
+    def _build_lag_report(self) -> str:
+        """扫描 status_latency.log，汇总"近 lag_report_hours 小时"的卡顿情况"""
+        hours = int(self.config.get('lag_report_hours', 24) or 24)
+        since = time.time() - hours * 3600
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            str(self.config.get('status_latency_file') or 'status_latency.log'))
+        rounds = slow_rounds = all_stall = 0
+        per_server, worst = {}, (0, '-')
+        try:
+            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                for raw in f:
+                    raw = raw.strip()
+                    if not raw or '|' not in raw:
+                        continue
+                    try:
+                        ts = time.mktime(time.strptime(raw[:19], '%Y-%m-%d %H:%M:%S'))
+                    except Exception:
+                        continue
+                    if ts < since:
+                        continue
+                    rounds += 1
+                    mo = re.search(r'在线 (\d+)/(\d+) \| 慢 (\d+) \| 最慢 (\S+) (\d+)ms', raw)
+                    if not mo:
+                        continue
+                    slow_n, name, ms = int(mo.group(3)), mo.group(4), int(mo.group(5))
+                    if ms > worst[0]:
+                        worst = (ms, name)
+                    if slow_n:
+                        slow_rounds += 1
+                        if slow_n >= 4:
+                            all_stall += 1
+                    for grp in re.findall(r'慢:\[([^\]]*)\]', raw):
+                        for one in grp.split(','):
+                            one = one.strip()
+                            if one:
+                                per_server[one] = per_server.get(one, 0) + 1
+        except Exception as e:
+            logger.debug(f"读延迟日志失败: {e}")
+        if not rounds:
+            return ''
+        pct = round(100.0 * slow_rounds / rounds, 1) if rounds else 0
+        out = [f"🐢 卡顿日报（近 {hours} 小时）",
+               f"采样 {rounds} 轮（每 {self.config.get('status_check_interval_seconds')} 秒一次）",
+               f"🐢 卡顿轮次 {slow_rounds}（{pct}%）｜最慢 {worst[1]} {worst[0]}ms",
+               f"⚠️ 全站同时变慢（≥4 台）{all_stall} 次"]
+        if per_server:
+            top = sorted(per_server.items(), key=lambda x: -x[1])[:5]
+            out.append("单台卡顿 Top：" + "、".join(f"{k} ×{v}" for k, v in top))
+        cur = sorted(((v.get('ms') or 0, k) for k, v in (self._server_status or {}).items()), reverse=True)[:3]
+        if cur:
+            out.append("当前最慢：" + "、".join(f"{k} {ms}ms" for ms, k in cur))
+        off = [k for k, v in (self._server_status or {}).items() if v.get('online') is False]
+        out.append(f"当前离线 {len(off)} 台" + (("：" + "、".join(off[:5])) if off else ""))
+        return "\n".join(out)
+
+    async def _lag_report_loop(self):
+        """到点（lag_report_time）把卡顿日报私聊给主人"""
+        while True:
+            try:
+                hhmm = str(self.config.get('lag_report_time') or '12:00').strip()
+                try:
+                    hh, mm = [int(x) for x in hhmm.split(':')[:2]]
+                except Exception:
+                    hh, mm = 12, 0
+                now = datetime.now()
+                nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                if nxt <= now:
+                    nxt += timedelta(days=1)
+                wait = max(30, int((nxt - now).total_seconds()))
+                logger.info(f"🐢 卡顿日报：下一次 {nxt.strftime('%m-%d %H:%M')}（{wait // 60} 分钟后）")
+                await asyncio.sleep(wait)
+                text = self._build_lag_report()
+                tid = self._lag_report_target()
+                if not text or not tid:
+                    logger.warning("🐢 卡顿日报：没有数据或没有收件人，跳过")
+                    continue
+                ok = await self._send_private_msg(tid, text, platform='kook')
+                logger.info(f"🐢 卡顿日报已{'发送' if ok else '发送失败'}（KOOK {tid}）")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"卡顿日报循环异常: {e}")
+                await asyncio.sleep(60)
+
     async def _check_server_status(self):
         """服务器上/下线 + 卡顿监控：并发探测每个 RCON 目标（同时量延迟）。
         ① 首轮只建基线不播报；② 连续 fail_threshold 次失败才判离线（防抖）；③ 恢复立即播报；
@@ -980,9 +1080,11 @@ class ZeroARKPlugin(Star):
             if online_n:
                 line = (f"{time.strftime('%Y-%m-%d %H:%M:%S')} 在线 {online_n}/{len(latencies)}"
                         f" | 慢 {len(slow_now)} | 最慢 {worst[1]} {worst[0]}ms")
+                if slow_now:
+                    line += " | 慢:[" + ",".join(n for n, _ in slow_now[:8]) + "]"
                 path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     str(self.config.get('status_latency_file') or 'status_latency.log'))
-                if os.path.exists(path) and os.path.getsize(path) > 2048 * 1024:
+                if os.path.exists(path) and os.path.getsize(path) > 32768 * 1024:
                     os.replace(path, path + '.1')
                 with open(path, 'a', encoding='utf-8') as f:
                     f.write(line + '\n')
@@ -1000,12 +1102,32 @@ class ZeroARKPlugin(Star):
                 online_n = sum(1 for v in self._server_status.values() if v.get('online'))
                 logger.info(f"🖥️ 服务器状态基线已建立：{online_n}/{len(targets)} 在线（首轮不播报）")
             return
-        shown, rest = events[:limit], events[limit:]
-        text = "🖥️ 【服务器状态变化】\n" + "\n".join(shown)
-        if rest:
-            text += f"\n…另有 {len(rest)} 条变化（省略）"
-        logger.info(f"🖥️ 服务器状态变化播报 {len(events)} 条：{shown[:3]}")
-        await self._broadcast(text)
+        # 分流：上下线 → 群/频道（broadcast_targets）；卡顿 → 私聊（lag_report_kook_id / owner_ids[0]）
+        updown = [e for e in events if "卡顿" not in e]
+        slow_ev = [e for e in events if "卡顿" in e]
+        logger.info(f"🖥️ 状态变化：上下线 {len(updown)} 条 / 卡顿 {len(slow_ev)} 条")
+        if updown:
+            shown, rest = updown[:limit], updown[limit:]
+            text = "🖥️ 【服务器状态变化】\n" + "\n".join(shown)
+            if rest:
+                text += f"\n…另有 {len(rest)} 条变化（省略）"
+            await self._broadcast(text)
+        if slow_ev:
+            pm = self._lag_report_target()
+            if not pm:
+                logger.warning("🐢 卡顿告警没有私聊收件人（lag_report_kook_id / owner_ids 都为空）")
+            else:
+                cool = max(0, int(self.config.get('status_slow_pm_cooldown_seconds', 60) or 0))
+                if cool and (time.time() - float(getattr(self, '_slow_pm_ts', 0) or 0)) < cool:
+                    logger.info(f"🐢 卡顿告警被冷却抑制（{len(slow_ev)} 条，冷却 {cool} 秒）")
+                else:
+                    shown, rest = slow_ev[:limit], slow_ev[limit:]
+                    text = "🐢 【服务器卡顿】\n" + "\n".join(shown)
+                    if rest:
+                        text += f"\n…另有 {len(rest)} 条（省略）"
+                    ok = await self._send_private_msg(pm, text, platform='kook')
+                    self._slow_pm_ts = time.time()
+                    logger.info(f"🐢 卡顿告警已{'私聊发送' if ok else '私聊发送失败'}（KOOK {pm}）：{shown[:2]}")
 
     async def _initial_status_baseline(self):
         """启动后尽快建立服务器状态基线（最多等 90 秒直到 RCON 目标与密码就绪）"""

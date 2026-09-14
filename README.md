@@ -232,6 +232,11 @@ astrbot_plugin_zeroserver/
 | `status_notify_fail_threshold` | 连续探测失败几次才算离线（默认 `2`；设 `1` 最灵敏，但一次瞬时抖动就会刷出"离线+恢复"两条） |
 | `status_slow_ms` | 在线但 RCON 延迟 ≥ 这个毫秒数（默认 `1500`）视为**卡顿**，进入/离开卡顿各播报一次；一轮 ≥4 台同时变慢会汇总提示"更像宿主/网络问题" |
 | `status_latency_file` | 延迟日志文件名（默认 `status_latency.log`）：每轮记一行"时间 \| 在线 N/M \| 慢 N \| 最慢 <名字> <ms>"，超 2MB 轮转 |
+| `lag_report_enabled` | 卡顿日报开关（默认 `false`）：开启后每天定时**私聊**一份"近 N 小时"的探测统计 |
+| `lag_report_time` | 日报时间 `HH:MM`（默认 `12:00`） |
+| `lag_report_hours` | 日报统计窗口（小时，默认 `24`） |
+| `lag_report_kook_id` | 卡顿日报 / 卡顿告警的**私聊收件人**（KOOK 用户ID）；留空则用 `owner_ids[0]` |
+| `status_slow_pm_cooldown_seconds` | 卡顿告警私聊冷却秒数（默认 `60`，期间最多一条；`0`=不限） |
 | `status_state_file` | 状态快照落盘文件名（默认 `status_state.json`，存放在插件目录） |
 | `status_state_max_age_seconds` | 快照超过这个秒数（默认 `1800`）视为过期：重启后只静默重建、不播报 |
 | `rcon_timeout` | 单条 RCON 命令超时秒数 |

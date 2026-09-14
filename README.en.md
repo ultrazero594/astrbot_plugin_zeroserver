@@ -234,6 +234,11 @@ Example `db_sources`:
 | `status_notify_fail_threshold` | Consecutive probe failures before a server is marked offline (default `2`; set `1` for max sensitivity, but a single hiccup then produces an offline+recovery pair) |
 | `status_slow_ms` | Treat an online server as **lagging** when RCON latency ≥ this many ms (default `1500`); announces on entering/leaving a lag episode, and aggregates as "likely host/network" when ≥4 servers are slow in one round |
 | `status_latency_file` | Latency log file name (default `status_latency.log`): one line per round — time \| online N/M \| slow N \| slowest `<name> <ms>`; rotates at 2MB |
+| `lag_report_enabled` | Daily lag report switch (default `false`): sends a private DM summary of the last N hours |
+| `lag_report_time` | Report time `HH:MM` (default `12:00`) |
+| `lag_report_hours` | Report window in hours (default `24`) |
+| `lag_report_kook_id` | Private recipient (KOOK user id) for the daily report and lag alerts; falls back to `owner_ids[0]` |
+| `status_slow_pm_cooldown_seconds` | Cooldown seconds between lag-alert DMs (default `60`; `0` = unlimited) |
 | `status_state_file` | Status snapshot file name (default `status_state.json`, stored in the plugin directory) |
 | `status_state_max_age_seconds` | Snapshots older than this (default `1800`) are treated as stale: after a restart it rebuilds silently without announcing |
 | `rcon_timeout` | RCON command timeout (seconds) |

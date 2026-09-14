@@ -2,6 +2,22 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.7] - 2026-09-15
+
+### 变更 / Changed
+- **状态探测间隔默认 `30` 秒 → `5` 秒**（`status_check_interval_seconds`），且**间隔下限由 10 秒放宽到 2 秒**（否则填 5 会被下限夹成 10）；`status_latency.log` 轮转阈值 512KB → 2MB（5 秒粒度下保留更久）
+- **判离线阈值默认 `1` → `2`**（`status_notify_fail_threshold`）：5 秒粒度下，单次瞬时抖动就会刷出「⚠️ 已离线 + ✅ 已恢复」两条消息；改成连续 2 次（≈10 秒）才判离线仍很快，要最灵敏可自行设回 `1`
+- Status probe interval default 30s → 5s (floor lowered from 10s to 2s), latency-log rotation 512KB → 2MB, offline threshold 1 → 2 to avoid single-hiccup spam at 5s resolution
+
+## [1.29.6] - 2026-09-15
+
+### 新增 / Added
+- **服务器卡顿监控**：状态探测现在**同时测量每台服的 RCON 往返延迟**
+  - 新配置 **`status_slow_ms`（默认 `1500`）**：在线但延迟 ≥ 阈值即视为卡顿 ⇒ **进入卡顿时播报一次**「🐢 卡顿：xxx（N ms）」、**恢复时播报**「✅ 卡顿恢复：xxx（峰值 … ms，持续约 … 秒）」；**同一轮 ≥4 台同时变慢**会汇总成一条并提示"更像宿主/网络问题，不是单台服"（**只有单台变慢 ⇒ 指向那台服自身**）
+  - 新配置 **`status_latency_file`（默认 `status_latency.log`）**：每轮追加一行「时间 | 在线 N/M | 慢 N | 最慢 <名字> <ms>」（超阈值轮转），用于事后对齐卡顿时间点
+  - 状态变化播报的日志现在带**前 3 条明细**（以前只写条数，查不出是哪台）
+- Server lag monitoring: per-probe RCON latency with `status_slow_ms` enter/leave announcements, a multi-server aggregation hint (≥4 slow in one round ⇒ likely host/network), and a rolling `status_latency.log`
+
 ## [1.29.5] - 2026-09-14
 
 ### 新增 / Added

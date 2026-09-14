@@ -228,8 +228,10 @@ astrbot_plugin_zeroserver/
 | `official_site` | 官网地址（显示在部分消息底部） |
 | `check_interval_minutes` | 地址/RCON/倍率定时刷新间隔（分钟） |
 | `status_notify_enabled` | 服务器上/下线提醒总开关（默认 `true`） |
-| `status_check_interval_seconds` | **状态探测**独立定时（秒，默认 `30`）：只做 RCON 探测，不重复抓数据源 |
-| `status_notify_fail_threshold` | 连续探测失败几次才算离线（默认 `1`，最灵敏；调大更抗抖动但更迟钝） |
+| `status_check_interval_seconds` | **状态探测**独立定时（秒，默认 `5`，下限 2）：只做 RCON 探测并量往返延迟，不重复抓数据源 |
+| `status_notify_fail_threshold` | 连续探测失败几次才算离线（默认 `2`；设 `1` 最灵敏，但一次瞬时抖动就会刷出"离线+恢复"两条） |
+| `status_slow_ms` | 在线但 RCON 延迟 ≥ 这个毫秒数（默认 `1500`）视为**卡顿**，进入/离开卡顿各播报一次；一轮 ≥4 台同时变慢会汇总提示"更像宿主/网络问题" |
+| `status_latency_file` | 延迟日志文件名（默认 `status_latency.log`）：每轮记一行"时间 \| 在线 N/M \| 慢 N \| 最慢 <名字> <ms>"，超 2MB 轮转 |
 | `status_state_file` | 状态快照落盘文件名（默认 `status_state.json`，存放在插件目录） |
 | `status_state_max_age_seconds` | 快照超过这个秒数（默认 `1800`）视为过期：重启后只静默重建、不播报 |
 | `rcon_timeout` | 单条 RCON 命令超时秒数 |

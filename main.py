@@ -310,10 +310,14 @@ DEFAULT_CONFIG = {
     "status_notify_fail_threshold": 1,   # 连续失败几次才算离线（防抖；1=最灵敏）
     "status_notify_limit": 8,            # 单条播报最多列几条变化
     # 状态探测单独一条更快的定时（秒）：只做 RCON 探测，不重复抓数据源
-    "status_check_interval_seconds": 30,
+    "status_check_interval_seconds": 5,
     # 状态快照落盘（抗 AstrBot 重启/热重载）；超过这个秒数视为过期，重启后只静默重建不播报
     "status_state_file": "status_state.json",
     "status_state_max_age_seconds": 1800,
+    # 卡顿监控：RCON 探测延迟 ≥ 这个毫秒数算"卡顿"（进入/离开卡顿各播报一次）
+    "status_slow_ms": 1500,
+    # 每轮把"最慢的一台 + 慢的台数"追加到这个文件（超 512KB 轮转），用于事后对齐卡顿时间点
+    "status_latency_file": "status_latency.log",
     # QQ 开放平台申请到「消息按钮模板」后填模板 id（填了就用模板发送按钮，否则用内联按钮实验）
     "qq_keyboard_template_id": "",
     # 私聊发不出验证码时，是否允许把验证码直接发在群/频道里（QQ 个人认证收不到私聊，只能这样）
@@ -583,7 +587,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.5", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.7", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -808,7 +812,7 @@ class ZeroARKPlugin(Star):
         self._background_tasks.append(asyncio.create_task(self._updates_loop(interval)))
         logger.info(f"🔄 地址/RCON/倍率定时刷新已启动：每 {interval // 60} 分钟")
         # 服务器状态探测：更快的独立循环（默认 30 秒），只做 RCON 探测、不重复抓数据源
-        st_sec = max(10, int(self.config.get('status_check_interval_seconds', 30) or 30))
+        st_sec = max(2, int(self.config.get('status_check_interval_seconds', 5) or 5))
         self._background_tasks.append(asyncio.create_task(self._status_probe_loop()))
         logger.info(f"🖥️ 服务器状态探测定时已启动：每 {st_sec} 秒")
 
@@ -881,7 +885,7 @@ class ZeroARKPlugin(Star):
 
     async def _status_probe_loop(self):
         """独立的服务器状态探测循环（默认每 30 秒）：只做 RCON 探测 → 状态变化才播报。"""
-        st_sec = max(10, int(self.config.get('status_check_interval_seconds', 30) or 30))
+        st_sec = max(2, int(self.config.get('status_check_interval_seconds', 5) or 5))
         first = True
         while True:
             try:
@@ -898,9 +902,10 @@ class ZeroARKPlugin(Star):
                 logger.debug(f"状态探测循环异常: {e}")
 
     async def _check_server_status(self):
-        """服务器上/下线监控：并发探测每个 RCON 目标，状态变化时推送到广播目标。
-        ① 首轮只建基线不播报；② 连续 fail_threshold 次探测失败才判定离线（防抖）；
-        ③ 恢复立即播报；④ 一轮最多报 limit 条，多的折叠成一行。"""
+        """服务器上/下线 + 卡顿监控：并发探测每个 RCON 目标（同时量延迟）。
+        ① 首轮只建基线不播报；② 连续 fail_threshold 次失败才判离线（防抖）；③ 恢复立即播报；
+        ④ 在线但延迟 ≥ status_slow_ms 视为"卡顿"，进入/离开卡顿各播报一次；
+        ⑤ 一轮最多报 limit 条；⑥ 每轮把"最慢的一台 + 慢的台数"写进 status_latency_file。"""
         if not self.config.get('status_notify_enabled', True):
             return
         targets = [t for t in (self.rcon_targets or []) if t.get('host') and t.get('port')]
@@ -908,33 +913,86 @@ class ZeroARKPlugin(Star):
             return
         threshold = max(1, int(self.config.get('status_notify_fail_threshold', 2)))
         limit = max(1, int(self.config.get('status_notify_limit', 8)))
+        slow_ms = max(200, int(self.config.get('status_slow_ms', 1500) or 1500))
         loop = asyncio.get_running_loop()
+
+        async def _probe(t):
+            t0 = time.perf_counter()
+            try:
+                ok = await loop.run_in_executor(None, self._rcon_online_sync, t['host'], t['port'])
+                ok = bool(ok)
+            except Exception:
+                ok = False
+            return ok, int((time.perf_counter() - t0) * 1000)
+
         try:
-            oks = await asyncio.gather(*[
-                loop.run_in_executor(None, self._rcon_online_sync, t['host'], t['port'])
-                for t in targets], return_exceptions=True)
+            results = await asyncio.gather(*[_probe(t) for t in targets])
         except Exception as e:
             logger.debug(f"服务器状态探测异常: {e}")
             return
-        events = []
-        for t, ok in zip(targets, oks):
+
+        events, slow_now, latencies = [], [], []
+        for t, (ok, ms) in zip(targets, results):
             name = self._target_label(t.get('name') or f"{t.get('host')}:{t.get('port')}")
-            st = self._server_status.get(name) or {'online': None, 'fails': 0}
-            ok = bool(ok) if not isinstance(ok, Exception) else False
+            st = dict(self._server_status.get(name) or {'online': None, 'fails': 0})
+            was_slow = bool(st.get('slow'))
+            st['ms'] = ms
             if ok:
                 if st.get('online') is False:
                     events.append(f"✅ 已恢复：{name}")
-                st = {'online': True, 'fails': 0}
+                st['online'] = True
+                st['fails'] = 0
+                if ms >= slow_ms:                      # 在线但很慢 → 卡顿
+                    slow_now.append((name, ms))
+                    if not was_slow:
+                        st['slow_since'] = time.time()
+                        st['slow_max'] = ms
+                        events.append(f"🐢 卡顿：{name}（{ms} ms）")
+                    else:
+                        st['slow_max'] = max(int(st.get('slow_max') or 0), ms)
+                    st['slow'] = True
+                else:
+                    if was_slow:                       # 卡顿结束
+                        spans = int(time.time() - float(st.get('slow_since') or time.time()))
+                        events.append(f"✅ 卡顿恢复：{name}（峰值 {int(st.get('slow_max') or 0)} ms，"
+                                      f"持续约 {spans} 秒）")
+                    st['slow'] = False
+                    st.pop('slow_since', None)
             else:
+                st['slow'] = False
                 fails = int(st.get('fails', 0)) + 1
                 if st.get('online') is not False and fails >= threshold:
                     if st.get('online') is True:
                         events.append(f"⚠️ 已离线：{name}")
-                    st = {'online': False, 'fails': fails}
+                    st['online'] = False
+                    st['fails'] = fails
                 else:
-                    st = {'online': st.get('online'), 'fails': fails}
+                    st['fails'] = fails
+            latencies.append((ms, name, st.get('online') is True))
             self._server_status[name] = st
         self._save_status_state()
+
+        # 每轮把"最慢的一台 + 慢的台数"记进延迟日志（事后可对齐卡顿时间点）
+        try:
+            alive = [x for x in latencies if x[2]]
+            worst = max(alive) if alive else (0, '-', False)
+            online_n = len(alive)
+            if online_n:
+                line = (f"{time.strftime('%Y-%m-%d %H:%M:%S')} 在线 {online_n}/{len(latencies)}"
+                        f" | 慢 {len(slow_now)} | 最慢 {worst[1]} {worst[0]}ms")
+                path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    str(self.config.get('status_latency_file') or 'status_latency.log'))
+                if os.path.exists(path) and os.path.getsize(path) > 2048 * 1024:
+                    os.replace(path, path + '.1')
+                with open(path, 'a', encoding='utf-8') as f:
+                    f.write(line + '\n')
+        except Exception as e:
+            logger.debug(f"写延迟日志失败: {e}")
+
+        # 多台同时变慢 → 更像宿主/网络/开服器（而不是某一台服本身）
+        if len(slow_now) >= 4:
+            names = "、".join(n for n, _ in slow_now[:6])
+            events.insert(0, f"🐢 同时 {len(slow_now)} 台变慢（{names}…）⇒ 更像宿主/网络问题，不是单台服")
         first_round = not self._status_baseline_done
         self._status_baseline_done = True
         if first_round or not events:
@@ -946,7 +1004,7 @@ class ZeroARKPlugin(Star):
         text = "🖥️ 【服务器状态变化】\n" + "\n".join(shown)
         if rest:
             text += f"\n…另有 {len(rest)} 条变化（省略）"
-        logger.info(f"🖥️ 服务器状态变化播报 {len(events)} 条")
+        logger.info(f"🖥️ 服务器状态变化播报 {len(events)} 条：{shown[:3]}")
         await self._broadcast(text)
 
     async def _initial_status_baseline(self):

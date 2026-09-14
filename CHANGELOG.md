@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.11] - 2026-09-15
+
+### 新增 / Added
+- **卡顿告警同时私聊 QQ 主人**：新配置 `status_slow_pm_qq`（默认 `false`）。开启后，卡顿/卡顿恢复这类消息除 KOOK 私聊外，还会再私聊一次 **`owner_qq`**（QQ 官方 `send_by_session` 主动私聊）；两者共享同一个冷却 `status_slow_pm_cooldown_seconds`，各自成败都写日志（QQ 个人认证的主动私聊能力不定，失败不影响 KOOK 那条）
+- Lag alerts can additionally be sent to the QQ owner as a private message (`status_slow_pm_qq`, default false)
+
 ## [1.29.10] - 2026-09-15
 
 ### 变更 / Changed

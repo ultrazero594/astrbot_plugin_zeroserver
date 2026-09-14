@@ -237,6 +237,7 @@ astrbot_plugin_zeroserver/
 | `lag_report_hours` | 日报统计窗口（小时，默认 `24`） |
 | `lag_report_kook_id` | 卡顿日报 / 卡顿告警的**私聊收件人**（KOOK 用户ID）；留空则用 `owner_ids[0]` |
 | `status_slow_pm_cooldown_seconds` | 卡顿告警私聊冷却秒数（默认 `60`，期间最多一条；`0`=不限） |
+| `status_slow_pm_qq` | 卡顿告警是否**同时私聊 QQ 主人**（`owner_qq`，默认 `false`；失败只记日志，不影响 KOOK 私聊） |
 | `status_state_file` | 状态快照落盘文件名（默认 `status_state.json`，存放在插件目录） |
 | `status_state_max_age_seconds` | 快照超过这个秒数（默认 `1800`）视为过期：重启后只静默重建、不播报 |
 | `rcon_timeout` | 单条 RCON 命令超时秒数 |

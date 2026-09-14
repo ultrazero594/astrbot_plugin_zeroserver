@@ -592,7 +592,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.10", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.11", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1128,6 +1128,16 @@ class ZeroARKPlugin(Star):
                     ok = await self._send_private_msg(pm, text, platform='kook')
                     self._slow_pm_ts = time.time()
                     logger.info(f"🐢 卡顿告警已{'私聊发送' if ok else '私聊发送失败'}（KOOK {pm}）：{shown[:2]}")
+                    if self.config.get('status_slow_pm_qq'):
+                        qq = str(self.config.get('owner_qq') or '').strip()
+                        if qq:
+                            try:
+                                okq = await self._send_private_msg(qq, text)   # platform 留空 => 走 QQ 官方
+                                logger.info(f"🐢 卡顿告警 QQ 私聊{'已发送' if okq else '失败'}（{qq[:12]}…）")
+                            except Exception as e:
+                                logger.warning(f"🐢 卡顿告警 QQ 私聊异常: {e}")
+                        else:
+                            logger.warning("🐢 卡顿告警开了 QQ 私聊但 owner_qq 为空")
 
     async def _initial_status_baseline(self):
         """启动后尽快建立服务器状态基线（最多等 90 秒直到 RCON 目标与密码就绪）"""

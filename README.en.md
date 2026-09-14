@@ -239,6 +239,7 @@ Example `db_sources`:
 | `lag_report_hours` | Report window in hours (default `24`) |
 | `lag_report_kook_id` | Private recipient (KOOK user id) for the daily report and lag alerts; falls back to `owner_ids[0]` |
 | `status_slow_pm_cooldown_seconds` | Cooldown seconds between lag-alert DMs (default `60`; `0` = unlimited) |
+| `status_slow_pm_qq` | Also DM the QQ owner (`owner_qq`) for lag alerts (default `false`; failures are logged only) |
 | `status_state_file` | Status snapshot file name (default `status_state.json`, stored in the plugin directory) |
 | `status_state_max_age_seconds` | Snapshots older than this (default `1800`) are treated as stale: after a restart it rebuilds silently without announcing |
 | `rcon_timeout` | RCON command timeout (seconds) |

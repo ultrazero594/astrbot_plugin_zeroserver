@@ -2,6 +2,12 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.12] - 2026-09-15
+
+### 新增 / Added
+- **卡顿日报也私聊 QQ 主人**：日报在原有 KOOK 私聊之外，会再私聊一次 `owner_qq`（与卡顿告警共用 `status_slow_pm_qq` 开关），成败分别记日志
+- The daily lag report is now also DM'd to the QQ owner via `status_slow_pm_qq`
+
 ## [1.29.11] - 2026-09-15
 
 ### 新增 / Added

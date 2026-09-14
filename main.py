@@ -592,7 +592,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.11", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.12", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -995,6 +995,17 @@ class ZeroARKPlugin(Star):
                     continue
                 ok = await self._send_private_msg(tid, text, platform='kook')
                 logger.info(f"🐢 卡顿日报已{'发送' if ok else '发送失败'}（KOOK {tid}）")
+                # 卡顿日报也私聊 QQ 主人（与卡顿告警共用 status_slow_pm_qq 开关）
+                if self.config.get('status_slow_pm_qq'):
+                    qq = str(self.config.get('owner_qq') or '').strip()
+                    if qq:
+                        try:
+                            okq = await self._send_private_msg(qq, text)
+                            logger.info(f"🐢 卡顿日报 QQ 私聊{'已发送' if okq else '失败'}（{qq[:12]}…）")
+                        except Exception as e:
+                            logger.warning(f"🐢 卡顿日报 QQ 私聊异常: {e}")
+                    else:
+                        logger.warning("🐢 卡顿日报开了 QQ 私聊但 owner_qq 为空")
             except asyncio.CancelledError:
                 break
             except Exception as e:

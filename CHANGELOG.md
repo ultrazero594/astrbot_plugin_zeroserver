@@ -2,6 +2,14 @@
 
 All notable changes are documented here. 语义化版本：语义化版本 2.0 / [Semantic Versioning](https://semver.org/lang/zh-CN/).
 
+## [1.29.13] - 2026-09-15
+
+### 修复 / Fixed
+- **修一个分流漏网**：「🐢 同时 N 台变慢（…）⇒ 更像宿主/网络问题」这条汇总消息里**没有"卡顿"二字**，而上一版的分流是靠文本匹配（`"卡顿" in e`）判断的 ⇒ 它被误判成"上下线"，**发进了群/频道** ✗。现在改为**在产生事件时就分好两个列表**（`group_ev` / `pm_ev`），不再依赖文字匹配：
+  - **群 / 公共频道（`broadcast_targets`）只收上下线**（⚠️ 已离线 / ✅ 已恢复）
+  - **卡顿类全部走私聊**（🐢 卡顿 / ✅ 卡顿恢复 / 🐢 同时 N 台变慢汇总）
+- Fix a routing leak: the aggregated "N servers slow" line contains no literal "卡顿", so text-based splitting sent it to the groups; events are now bucketed when created (up/down -> groups, every lag message -> DM)
+
 ## [1.29.12] - 2026-09-15
 
 ### 新增 / Added

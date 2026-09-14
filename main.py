@@ -592,7 +592,7 @@ class CrossChatForwarder:
     def stop(self):
         self.running = False
 
-@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.12", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
+@register("astrbot_plugin_zeroserver", "ZeroARK", "方舟服务器查询机器人", "1.29.13", "https://github.com/ultrazero594/astrbot_plugin_zeroserver")
 class ZeroARKPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -1042,7 +1042,7 @@ class ZeroARKPlugin(Star):
             logger.debug(f"服务器状态探测异常: {e}")
             return
 
-        events, slow_now, latencies = [], [], []
+        events, group_ev, pm_ev, slow_now, latencies = [], [], [], [], []
         for t, (ok, ms) in zip(targets, results):
             name = self._target_label(t.get('name') or f"{t.get('host')}:{t.get('port')}")
             st = dict(self._server_status.get(name) or {'online': None, 'fails': 0})
@@ -1050,7 +1050,7 @@ class ZeroARKPlugin(Star):
             st['ms'] = ms
             if ok:
                 if st.get('online') is False:
-                    events.append(f"✅ 已恢复：{name}")
+                    group_ev.append(f"✅ 已恢复：{name}")
                 st['online'] = True
                 st['fails'] = 0
                 if ms >= slow_ms:                      # 在线但很慢 → 卡顿
@@ -1058,14 +1058,14 @@ class ZeroARKPlugin(Star):
                     if not was_slow:
                         st['slow_since'] = time.time()
                         st['slow_max'] = ms
-                        events.append(f"🐢 卡顿：{name}（{ms} ms）")
+                        pm_ev.append(f"🐢 卡顿：{name}（{ms} ms）")
                     else:
                         st['slow_max'] = max(int(st.get('slow_max') or 0), ms)
                     st['slow'] = True
                 else:
                     if was_slow:                       # 卡顿结束
                         spans = int(time.time() - float(st.get('slow_since') or time.time()))
-                        events.append(f"✅ 卡顿恢复：{name}（峰值 {int(st.get('slow_max') or 0)} ms，"
+                        pm_ev.append(f"✅ 卡顿恢复：{name}（峰值 {int(st.get('slow_max') or 0)} ms，"
                                       f"持续约 {spans} 秒）")
                     st['slow'] = False
                     st.pop('slow_since', None)
@@ -1074,7 +1074,7 @@ class ZeroARKPlugin(Star):
                 fails = int(st.get('fails', 0)) + 1
                 if st.get('online') is not False and fails >= threshold:
                     if st.get('online') is True:
-                        events.append(f"⚠️ 已离线：{name}")
+                        group_ev.append(f"⚠️ 已离线：{name}")
                     st['online'] = False
                     st['fails'] = fails
                 else:
@@ -1105,17 +1105,16 @@ class ZeroARKPlugin(Star):
         # 多台同时变慢 → 更像宿主/网络/开服器（而不是某一台服本身）
         if len(slow_now) >= 4:
             names = "、".join(n for n, _ in slow_now[:6])
-            events.insert(0, f"🐢 同时 {len(slow_now)} 台变慢（{names}…）⇒ 更像宿主/网络问题，不是单台服")
+            pm_ev.insert(0, f"🐢 同时 {len(slow_now)} 台变慢（{names}…）⇒ 更像宿主/网络问题，不是单台服")
         first_round = not self._status_baseline_done
         self._status_baseline_done = True
-        if first_round or not events:
+        if first_round or not (group_ev or pm_ev):
             if first_round:
                 online_n = sum(1 for v in self._server_status.values() if v.get('online'))
                 logger.info(f"🖥️ 服务器状态基线已建立：{online_n}/{len(targets)} 在线（首轮不播报）")
             return
-        # 分流：上下线 → 群/频道（broadcast_targets）；卡顿 → 私聊（lag_report_kook_id / owner_ids[0]）
-        updown = [e for e in events if "卡顿" not in e]
-        slow_ev = [e for e in events if "卡顿" in e]
+        # 分流：上下线（group_ev）→ 群/频道；卡顿（pm_ev，含"多台同时变慢"汇总）→ 私聊；不再靠字符串判断
+        updown, slow_ev = group_ev, pm_ev
         logger.info(f"🖥️ 状态变化：上下线 {len(updown)} 条 / 卡顿 {len(slow_ev)} 条")
         if updown:
             shown, rest = updown[:limit], updown[limit:]
